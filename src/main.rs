@@ -90,13 +90,7 @@ fn main() {
             object.draw(&mut con);
         }
 
-        blit(&mut con,
-             (0, 0),
-             (SCREEN_WIDTH, SCREEN_HEIGHT),
-             &mut root,
-             (0, 0),
-             1.0,
-             1.0);
+        blit(&mut con, (0, 0), (SCREEN_WIDTH, SCREEN_HEIGHT), &mut root, (0, 0), 1.0, 1.0);
 
         root.flush();
 
