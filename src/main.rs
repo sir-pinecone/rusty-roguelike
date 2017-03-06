@@ -99,6 +99,11 @@ impl Tile {
     pub fn wall() -> Self {
         Tile { passable: false, block_sight: true }
     }
+
+    pub fn make_empty(tile: &mut Tile) {
+        tile.passable = true;
+        tile.block_sight = false;
+    }
 }
 
 type Map = Vec<Tile>;
@@ -114,17 +119,13 @@ fn create_room(room: Rect, map: &mut Map) {
 
 fn create_h_tunnel(x1: i32, x2: i32, y: i32, map: &mut Map) {
     for x in cmp::min(x1, x2)..(cmp::max(x1, x2) + 1) {
-        let coord = (y * MAP_WIDTH + x) as usize;
-        map[coord].passable = true;
-        map[coord].block_sight = false;
+        Tile::make_empty(&mut map[(y * MAP_WIDTH + x) as usize]);
     }
 }
 
 fn create_v_tunnel(y1: i32, y2: i32, x: i32, map: &mut Map) {
     for y in cmp::min(y1, y2)..(cmp::max(y1, y2) + 1) {
-        let coord = (y * MAP_WIDTH + x) as usize;
-        map[coord].passable = true;
-        map[coord].block_sight = false;
+        Tile::make_empty(&mut map[(y * MAP_WIDTH + x) as usize]);
     }
 }
 
