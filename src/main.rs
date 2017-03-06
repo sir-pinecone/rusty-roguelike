@@ -2,7 +2,7 @@ extern crate tcod;
 extern crate rand;
 
 use std::cmp;
-use rand::Rng;
+use rand::{Rng, SeedableRng, StdRng};
 use tcod::console::*;
 use tcod::colors::{self, Color};
 
@@ -20,6 +20,20 @@ const ROOM_MAX_SIZE: i32 = 12;
 const ROOM_MIN_SIZE: i32 = 5;
 // @feature min_rooms
 const MAX_ROOMS: i32 = 10;
+
+
+struct ThreadContext {
+    rand: StdRng
+}
+
+impl ThreadContext {
+    pub fn new(seed: &[usize]) -> Self {
+        let rng: StdRng = SeedableRng::from_seed(seed);
+        ThreadContext {
+            rand: rng
+        }
+    }
+}
 
 
 #[derive(Debug)]
@@ -147,16 +161,16 @@ fn create_v_tunnel(y1: i32, y2: i32, x: i32, map: &mut Map) {
     }
 }
 
-fn make_map() -> (Map, (i32, i32)) {
+fn make_map(thread_ctx: &mut ThreadContext) -> (Map, (i32, i32)) {
     let mut map = vec![Tile::wall(); (MAP_WIDTH * MAP_HEIGHT) as usize];
     let mut rooms = vec![];
     let mut player_start_pos = (0, 0);
 
     for i in 0..MAX_ROOMS {
-        let w = rand::thread_rng().gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
-        let h = rand::thread_rng().gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
-        let x = rand::thread_rng().gen_range(0, MAP_WIDTH - w);
-        let y = rand::thread_rng().gen_range(0, MAP_HEIGHT - h);
+        let w = thread_ctx.rand.gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
+        let h = thread_ctx.rand.gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
+        let x = thread_ctx.rand.gen_range(0, MAP_WIDTH - w);
+        let y = thread_ctx.rand.gen_range(0, MAP_HEIGHT - h);
 
         let room = Rect::new(x, y, w, h);
         let can_place = !rooms.iter().any(|other_room| room.intersects_with(other_room));
@@ -173,7 +187,7 @@ fn make_map() -> (Map, (i32, i32)) {
                 let (new_x, new_y) = room.center();
 
                 // draw a coin to pick the type of tunnel
-                if rand::random() {
+                if thread_ctx.rand.gen::<bool>() {
                     create_h_tunnel(prev_x, new_x, prev_y, &mut map);
                     create_v_tunnel(prev_y, new_y, new_x, &mut map);
                 } else {
@@ -241,12 +255,21 @@ fn main() {
         .size(SCREEN_WIDTH, SCREEN_HEIGHT)
         .title("Rusty Roguelike")
         .init();
+    tcod::system::set_fps(LIMIT_FPS);
 
     let mut con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
 
-    tcod::system::set_fps(LIMIT_FPS);
+    // Setup the number generator
+    let seed_v = 69;
+    let rng_seed: &[_] = &[&seed_v as *const i32 as usize];
 
-    let (map, (player_x, player_y)) = make_map();
+    // @incomplete allow a seed to be fed to the program. Stick is in a seed var like so:
+    // let rng_seed: &[_] = &[<value>];
+    println!("Seed: {:?}", rng_seed);
+
+    let mut thread_ctx = ThreadContext::new(&rng_seed);
+
+    let (map, (player_x, player_y)) = make_map(&mut thread_ctx);
 
     let player = Object::new(player_x, player_y, '@', colors::WHITE);
     let wizard = Object::new(player_x + 1, player_y + 1, '@', colors::YELLOW);
