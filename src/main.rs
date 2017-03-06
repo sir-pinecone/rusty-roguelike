@@ -1,5 +1,6 @@
 extern crate tcod;
 
+use std::cmp;
 use tcod::console::*;
 use tcod::colors::{self, Color};
 
@@ -12,6 +13,7 @@ const MAP_HEIGHT: i32 = SCREEN_HEIGHT - 5;
 
 const COLOR_DARK_WALL: Color = Color { r: 0, g: 0, b: 100, };
 const COLOR_DARK_GROUND: Color = Color { r: 50, g: 50, b: 150, };
+
 
 #[derive(Debug)]
 struct Object {
@@ -66,6 +68,22 @@ impl Object {
     }
 }
 
+
+#[derive(Clone, Copy, Debug)]
+struct Rect {
+    x1: i32,
+    x2: i32,
+    y1: i32,
+    y2: i32
+}
+
+impl Rect {
+    pub fn new(x: i32, y: i32, w: i32, h: i32) -> Self {
+        Rect { x1: x, y1: y, x2: x + w, y2: y + h }
+    }
+}
+
+
 #[derive(Clone, Copy, Debug)]
 struct Tile {
     // @future try using Object for tiles. Can then reuse HP, damage given, etc.
@@ -85,10 +103,41 @@ impl Tile {
 
 type Map = Vec<Tile>;
 
+/* Places a rect of empty tiles into `map` */
+fn create_room(room: Rect, map: &mut Map) {
+    for x in (room.x1 + 1)..room.x2 {
+        for y in (room.y1 + 1)..room.y2 {
+            map[(y * MAP_WIDTH + x) as usize] = Tile::empty();
+        }
+    }
+}
+
+fn create_h_tunnel(x1: i32, x2: i32, y: i32, map: &mut Map) {
+    for x in cmp::min(x1, x2)..(cmp::max(x1, x2) + 1) {
+        let coord = (y * MAP_WIDTH + x) as usize;
+        map[coord].passable = true;
+        map[coord].block_sight = false;
+    }
+}
+
+fn create_v_tunnel(y1: i32, y2: i32, x: i32, map: &mut Map) {
+    for y in cmp::min(y1, y2)..(cmp::max(y1, y2) + 1) {
+        let coord = (y * MAP_WIDTH + x) as usize;
+        map[coord].passable = true;
+        map[coord].block_sight = false;
+    }
+}
+
 fn make_map() -> Map {
-    let mut map = vec![Tile::empty(); (MAP_WIDTH * MAP_HEIGHT) as usize];
-    map[(22 * MAP_WIDTH + 30) as usize] = Tile::wall();
-    map[(22 * MAP_WIDTH + 50) as usize] = Tile::wall();
+    let mut map = vec![Tile::wall(); (MAP_WIDTH * MAP_HEIGHT) as usize];
+
+    let room1 = Rect::new(20, 15, 10, 15);
+    let room2 = Rect::new(50, 15, 10, 15);
+    create_room(room1, &mut map);
+    create_room(room2, &mut map);
+
+    create_h_tunnel(25, 55, 23, &mut map);
+
     map
 }
 
@@ -119,8 +168,8 @@ fn handle_input(root: &mut Root, player: &mut Object, map : &Map) -> bool {
 }
 
 fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &Map) {
-    for y in 0..MAP_HEIGHT {
-        for x in 0..MAP_WIDTH {
+    for x in 0..MAP_WIDTH {
+        for y in 0..MAP_HEIGHT {
             let is_wall = map[(y * MAP_WIDTH + x) as usize].block_sight;
             if is_wall {
                 con.set_char_background(x, y, COLOR_DARK_WALL, BackgroundFlag::Set);
@@ -149,8 +198,8 @@ fn main() {
 
     tcod::system::set_fps(LIMIT_FPS);
 
-    let player = Object::new(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, '@', colors::WHITE);
-    let wizard = Object::new(SCREEN_WIDTH / 2 - 5, SCREEN_HEIGHT / 2, '@', colors::YELLOW);
+    let player = Object::new(25, 23, '@', colors::WHITE);
+    let wizard = Object::new(55, 28, '@', colors::YELLOW);
 
     let mut objects = [player, wizard];
 
