@@ -33,8 +33,21 @@ impl Object {
 
     /* Move by a given amount */
     pub fn move_by(&mut self, dx: i32, dy: i32, map: &Map) {
-        let new_x = self.x + dx;
-        let new_y = self.y + dy;
+        let mut new_x = self.x + dx;
+        let mut new_y = self.y + dy;
+
+        if new_x >= MAP_WIDTH {
+            new_x = 0;
+        } else if new_x < 0 {
+            new_x = MAP_WIDTH - 1;
+        }
+
+        if new_y >= MAP_HEIGHT {
+            new_y = 0;
+        } else if new_y < 0 {
+            new_y = MAP_HEIGHT - 1;
+        }
+
         if map[new_x as usize][new_y as usize].passable {
             self.x = new_x;
             self.y = new_y;
