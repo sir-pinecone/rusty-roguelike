@@ -48,7 +48,7 @@ impl Object {
             new_y = MAP_HEIGHT - 1;
         }
 
-        if map[new_x as usize][new_y as usize].passable {
+        if map[(new_y * MAP_WIDTH + new_x) as usize].passable {
             self.x = new_x;
             self.y = new_y;
         }
@@ -68,6 +68,7 @@ impl Object {
 
 #[derive(Clone, Copy, Debug)]
 struct Tile {
+    // @future try using Object for tiles. Can then reuse HP, damage given, etc.
     passable: bool,
     block_sight: bool
 }
@@ -82,12 +83,12 @@ impl Tile {
     }
 }
 
-type Map = Vec<Vec<Tile>>;
+type Map = Vec<Tile>;
 
 fn make_map() -> Map {
-    let mut map = vec![vec![Tile::empty(); MAP_HEIGHT as usize]; MAP_WIDTH as usize];
-    map[30][22] = Tile::wall();
-    map[50][22] = Tile::wall();
+    let mut map = vec![Tile::empty(); (MAP_WIDTH * MAP_HEIGHT) as usize];
+    map[(22 * MAP_WIDTH + 30) as usize] = Tile::wall();
+    map[(22 * MAP_WIDTH + 50) as usize] = Tile::wall();
     map
 }
 
@@ -120,7 +121,7 @@ fn handle_input(root: &mut Root, player: &mut Object, map : &Map) -> bool {
 fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &Map) {
     for y in 0..MAP_HEIGHT {
         for x in 0..MAP_WIDTH {
-            let is_wall = map[x as usize][y as usize].block_sight;
+            let is_wall = map[(y * MAP_WIDTH + x) as usize].block_sight;
             if is_wall {
                 con.set_char_background(x, y, COLOR_DARK_WALL, BackgroundFlag::Set);
             } else {
