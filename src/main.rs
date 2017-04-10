@@ -230,7 +230,18 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, objects: &mut Vec<O
     let x = thread_ctx.rand.gen_range(room.x1 + 1, room.x2);
     let y = thread_ctx.rand.gen_range(room.y1 + 1, room.y2);
 
-    let monster = Object::new(x, y, '#', colors::GREEN);
+    let roll = thread_ctx.rand.next_f32();
+    let monster = if roll < 0.4 {
+      // Create a witch
+      Object::new(x, y, 'W', colors::GREEN)
+    } else if roll < 0.7 {
+      // Lizard
+      Object::new(x, y, 'L', colors::DARKER_GREEN)
+    } else {
+      // Wizard
+      Object::new(x, y, '@', colors::RED)
+    };
+
     objects.push(monster);
   }
 }
@@ -278,6 +289,7 @@ fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
   }
 }
 
+// NOTE: We use the type &[Object] for objects because we want an immutable slice (a view)
 fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object],
               map: &Map, fov_map: &mut FovMap, render_map: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
