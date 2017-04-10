@@ -18,6 +18,9 @@ const ROOM_MAX_SIZE: i32 = 12;
 const ROOM_MIN_SIZE: i32 = 5;
 // @feature min_rooms
 const MAX_ROOMS: i32 = 10;
+const MAX_ROOM_MONSTERS: i32 = 3;
+
+const PLAYER_IDX: usize = 0; // Always the first object
 
 const FOV_ALGO: FovAlgorithm = FovAlgorithm::Basic;
 const FOV_LIGHT_WALLS: bool = true;
@@ -59,6 +62,11 @@ impl Object {
       char: char,
       color: color,
     }
+  }
+
+  pub fn set_pos(&mut self, x: i32, y: i32) {
+    self.x = x;
+    self.y = y;
   }
 
   /* Move by a given amount */
@@ -151,7 +159,7 @@ impl Tile {
 
 type Map = Vec<Tile>;
 
-/* Places a rect of empty tiles into `map` */
+// Places a rect of empty tiles into `map`
 fn create_room(room: Rect, map: &mut Map) {
   for y in (room.y1 + 1)..room.y2 {
     for x in (room.x1 + 1)..room.x2 {
@@ -172,10 +180,9 @@ fn create_v_tunnel(y1: i32, y2: i32, x: i32, map: &mut Map) {
   }
 }
 
-fn make_map(thread_ctx: &mut ThreadContext) -> (Map, (i32, i32)) {
+fn make_map(thread_ctx: &mut ThreadContext, objects: &mut Vec<Object>) -> Map {
   let mut map = vec![Tile::wall(); (MAP_WIDTH * MAP_HEIGHT) as usize];
   let mut rooms = vec![];
-  let mut player_start_pos = (0, 0);
 
   for i in 0..MAX_ROOMS {
     let w = thread_ctx.rand.gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
@@ -188,14 +195,16 @@ fn make_map(thread_ctx: &mut ThreadContext) -> (Map, (i32, i32)) {
 
     if can_place {
       create_room(room, &mut map);
+      place_objects(thread_ctx, room, objects);
+
+      let (new_x, new_y) = room.center();
 
       if i == 0 {
-        // @assumption we always create a room when i = 0
-        player_start_pos = room.center();
+        // @assumption we always create a room when i = 0 (first room created)
+        objects[PLAYER_IDX].set_pos(new_x, new_y);
       } else {
         // connect to previous room with a tunnel
         let (prev_x, prev_y) = rooms[rooms.len() - 1].center();
-        let (new_x, new_y) = room.center();
 
         // draw a coin to pick the type of tunnel
         if thread_ctx.rand.gen::<bool>() {
@@ -211,7 +220,19 @@ fn make_map(thread_ctx: &mut ThreadContext) -> (Map, (i32, i32)) {
     }
   }
 
-  (map, player_start_pos)
+  map
+}
+
+fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, objects: &mut Vec<Object>) {
+  let num_monsters = thread_ctx.rand.gen_range(0, MAX_ROOM_MONSTERS + 1);
+
+  for _ in 0..num_monsters {
+    let x = thread_ctx.rand.gen_range(room.x1 + 1, room.x2);
+    let y = thread_ctx.rand.gen_range(room.y1 + 1, room.y2);
+
+    let monster = Object::new(x, y, '#', colors::GREEN);
+    objects.push(monster);
+  }
 }
 
 fn handle_input(root: &mut Root, player: &mut Object, map : &Map) -> bool {
@@ -257,8 +278,8 @@ fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
   }
 }
 
-fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &Map,
-              fov_map: &mut FovMap, render_map: bool) {
+fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object],
+              map: &Map, fov_map: &mut FovMap, render_map: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
   if render_map {
     for y in 0..MAP_HEIGHT {
@@ -310,7 +331,11 @@ fn main() {
   // let rng_seed: &[_] = &[<value>];
   println!("Seed: {:?}", rng_seed);
 
-  let (mut map, (player_x, player_y)) = make_map(&mut thread_ctx);
+  let player = Object::new(0, 0, '@', colors::WHITE);
+
+  let mut objects = vec![player];
+
+  let mut map = make_map(&mut thread_ctx, &mut objects);
 
   // Init fov
   let mut fov_map = FovMap::new(MAP_WIDTH, MAP_HEIGHT);
@@ -324,14 +349,10 @@ fn main() {
 
   let mut previous_player_pos = (-1, -1);
 
-  let player = Object::new(player_x, player_y, '@', colors::WHITE);
-  let wizard = Object::new(player_x + 1, player_y + 1, '@', colors::YELLOW);
-  let mut objects = [player, wizard];
-
   while !root.window_closed() {
-    let recompute_fov = previous_player_pos != (objects[0].x, objects[0].y);
+    let recompute_fov = previous_player_pos != (objects[PLAYER_IDX].x, objects[PLAYER_IDX].y);
     if recompute_fov {
-      let player_ref = &objects[0];
+      let player_ref = &objects[PLAYER_IDX];
       fov_map.compute_fov(player_ref.x, player_ref.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
     }
 
@@ -345,7 +366,7 @@ fn main() {
       object.clear(&mut con);
     }
 
-    let player = &mut objects[0];
+    let player = &mut objects[PLAYER_IDX];
     previous_player_pos = (player.x, player.y);
 
     let exit = handle_input(&mut root, player, &map);
