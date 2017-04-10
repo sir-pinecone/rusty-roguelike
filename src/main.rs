@@ -128,22 +128,24 @@ struct Tile {
   // @future try using Object for tiles. Can then reuse HP, damage given, etc.
   passable: bool,
   block_sight: bool,
-  explored: bool
+  explored: bool,
+  visible: bool
 }
 
 impl Tile {
   pub fn empty() -> Self {
-    Tile { passable: true, block_sight: false, explored: false }
+    Tile { passable: true, block_sight: false, explored: false, visible: false }
   }
 
   pub fn wall() -> Self {
-    Tile { passable: false, block_sight: true, explored: false }
+    Tile { passable: false, block_sight: true, explored: false, visible: false }
   }
 
   pub fn make_empty(tile: &mut Tile) {
     tile.passable = true;
     tile.block_sight = false;
     tile.explored = false;
+    tile.visible = false;
   }
 }
 
@@ -238,24 +240,34 @@ fn handle_input(root: &mut Root, player: &mut Object, map : &Map) -> bool {
   false
 }
 
-fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &mut Map,
-              fov_map: &mut FovMap, recompute_fov: bool) {
-  // No need to re-render the map unless the FOV needs to be recomputed
-  if recompute_fov {
-    let player = &objects[0];
-
-    fov_map.compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
-
+fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
+  // For now we only care about updating tile visibility and that only needs to happen
+  // when the player moved
+  if player_moved {
     for y in 0..MAP_HEIGHT {
       for x in 0..MAP_WIDTH {
         let tile = &mut map[(y * MAP_WIDTH + x) as usize];
-        let is_visible = fov_map.is_in_fov(x, y);
-
-        if tile.explored || is_visible {
+        // @perf this can potentially be slow if we're dealing with a ton of tiles
+        tile.visible = fov_map.is_in_fov(x, y);
+        if tile.visible && !tile.explored {
           tile.explored = true;
+        }
+      }
+    }
+  }
+}
 
+fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &Map,
+              fov_map: &mut FovMap, render_map: bool) {
+  // No need to re-render the map unless the FOV needs to be recomputed
+  if render_map {
+    for y in 0..MAP_HEIGHT {
+      for x in 0..MAP_WIDTH {
+        let tile = &map[(y * MAP_WIDTH + x) as usize];
+
+        if tile.explored || tile.visible {
           let is_wall = tile.block_sight;
-          let color = match(is_visible, is_wall) {
+          let color = match(tile.visible, is_wall) {
             // Outside the FOV:
             (false, true) => COLOR_DARK_WALL,
             (false, false) => COLOR_DARK_GROUND,
@@ -292,15 +304,15 @@ fn main() {
   // Setup the number generator
   let seed_v = 69;
   let rng_seed: &[_] = &[&seed_v as *const i32 as usize];
+  let mut thread_ctx = ThreadContext::new(&rng_seed);
 
   // @incomplete allow a seed to be fed to the program. Stick is in a seed var like so:
   // let rng_seed: &[_] = &[<value>];
   println!("Seed: {:?}", rng_seed);
 
-  let mut thread_ctx = ThreadContext::new(&rng_seed);
-
   let (mut map, (player_x, player_y)) = make_map(&mut thread_ctx);
 
+  // Init fov
   let mut fov_map = FovMap::new(MAP_WIDTH, MAP_HEIGHT);
   for y in 0..MAP_HEIGHT {
     for x in 0..MAP_WIDTH {
@@ -310,15 +322,21 @@ fn main() {
     }
   }
 
+  let mut previous_player_pos = (-1, -1);
+
   let player = Object::new(player_x, player_y, '@', colors::WHITE);
   let wizard = Object::new(player_x + 1, player_y + 1, '@', colors::YELLOW);
   let mut objects = [player, wizard];
 
-  let mut previous_player_pos = (-1, -1);
-
   while !root.window_closed() {
     let recompute_fov = previous_player_pos != (objects[0].x, objects[0].y);
-    render_all(&mut root, &mut con, &objects, &mut map, &mut fov_map, recompute_fov);
+    if recompute_fov {
+      let player_ref = &objects[0];
+      fov_map.compute_fov(player_ref.x, player_ref.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
+    }
+
+    update_map(&mut map, &mut fov_map, recompute_fov);
+    render_all(&mut root, &mut con, &objects, &map, &mut fov_map, recompute_fov);
 
     root.flush();
 
