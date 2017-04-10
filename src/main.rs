@@ -127,21 +127,23 @@ impl Rect {
 struct Tile {
   // @future try using Object for tiles. Can then reuse HP, damage given, etc.
   passable: bool,
-  block_sight: bool
+  block_sight: bool,
+  explored: bool
 }
 
 impl Tile {
   pub fn empty() -> Self {
-    Tile { passable: true, block_sight: false }
+    Tile { passable: true, block_sight: false, explored: false }
   }
 
   pub fn wall() -> Self {
-    Tile { passable: false, block_sight: true }
+    Tile { passable: false, block_sight: true, explored: false }
   }
 
   pub fn make_empty(tile: &mut Tile) {
     tile.passable = true;
     tile.block_sight = false;
+    tile.explored = false;
   }
 }
 
@@ -236,7 +238,7 @@ fn handle_input(root: &mut Root, player: &mut Object, map : &Map) -> bool {
   false
 }
 
-fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &Map,
+fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &mut Map,
               fov_map: &mut FovMap, recompute_fov: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
   if recompute_fov {
@@ -246,17 +248,23 @@ fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &Ma
 
     for y in 0..MAP_HEIGHT {
       for x in 0..MAP_WIDTH {
+        let tile = &mut map[(y * MAP_WIDTH + x) as usize];
         let is_visible = fov_map.is_in_fov(x, y);
-        let is_wall = map[(y * MAP_WIDTH + x) as usize].block_sight;
-        let color = match(is_visible, is_wall) {
-          // Outside the FOV:
-          (false, true) => COLOR_DARK_WALL,
-          (false, false) => COLOR_DARK_GROUND,
-          // Inside FOV:
-          (true, true) => COLOR_LIGHT_WALL,
-          (true, false) => COLOR_LIGHT_GROUND,
-        };
-        con.set_char_background(x, y, color, BackgroundFlag::Set);
+
+        if tile.explored || is_visible {
+          tile.explored = true;
+
+          let is_wall = tile.block_sight;
+          let color = match(is_visible, is_wall) {
+            // Outside the FOV:
+            (false, true) => COLOR_DARK_WALL,
+            (false, false) => COLOR_DARK_GROUND,
+            // Inside FOV:
+            (true, true) => COLOR_LIGHT_WALL,
+            (true, false) => COLOR_LIGHT_GROUND,
+          };
+          con.set_char_background(x, y, color, BackgroundFlag::Set);
+        }
       }
     }
   }
@@ -291,7 +299,7 @@ fn main() {
 
   let mut thread_ctx = ThreadContext::new(&rng_seed);
 
-  let (map, (player_x, player_y)) = make_map(&mut thread_ctx);
+  let (mut map, (player_x, player_y)) = make_map(&mut thread_ctx);
 
   let mut fov_map = FovMap::new(MAP_WIDTH, MAP_HEIGHT);
   for y in 0..MAP_HEIGHT {
@@ -310,7 +318,7 @@ fn main() {
 
   while !root.window_closed() {
     let recompute_fov = previous_player_pos != (objects[0].x, objects[0].y);
-    render_all(&mut root, &mut con, &objects, &map, &mut fov_map, recompute_fov);
+    render_all(&mut root, &mut con, &objects, &mut map, &mut fov_map, recompute_fov);
 
     root.flush();
 
