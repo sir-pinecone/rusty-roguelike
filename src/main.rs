@@ -142,8 +142,8 @@ type Map = Vec<Tile>;
 
 /* Places a rect of empty tiles into `map` */
 fn create_room(room: Rect, map: &mut Map) {
-  for x in (room.x1 + 1)..room.x2 {
-    for y in (room.y1 + 1)..room.y2 {
+  for y in (room.y1 + 1)..room.y2 {
+    for x in (room.x1 + 1)..room.x2 {
       map[(y * MAP_WIDTH + x) as usize] = Tile::empty();
     }
   }
@@ -230,8 +230,8 @@ fn handle_input(root: &mut Root, player: &mut Object, map : &Map) -> bool {
 }
 
 fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &Map) {
-  for x in 0..MAP_WIDTH {
-    for y in 0..MAP_HEIGHT {
+  for y in 0..MAP_HEIGHT {
+    for x in 0..MAP_WIDTH {
       let is_wall = map[(y * MAP_WIDTH + x) as usize].block_sight;
       if is_wall {
         con.set_char_background(x, y, COLOR_DARK_WALL, BackgroundFlag::Set);
