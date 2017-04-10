@@ -135,23 +135,23 @@ impl Rect {
 struct Tile {
   // @future try using Object for tiles. Can then reuse HP, damage given, etc.
   passable: bool,
-  block_sight: bool,
+  blocks_sight: bool,
   explored: bool,
   visible: bool
 }
 
 impl Tile {
   pub fn empty() -> Self {
-    Tile { passable: true, block_sight: false, explored: false, visible: false }
+    Tile { passable: true, blocks_sight: false, explored: false, visible: false }
   }
 
   pub fn wall() -> Self {
-    Tile { passable: false, block_sight: true, explored: false, visible: false }
+    Tile { passable: false, blocks_sight: true, explored: false, visible: false }
   }
 
   pub fn make_empty(tile: &mut Tile) {
     tile.passable = true;
-    tile.block_sight = false;
+    tile.blocks_sight = false;
     tile.explored = false;
     tile.visible = false;
   }
@@ -299,7 +299,7 @@ fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object],
         let tile = &map[(y * MAP_WIDTH + x) as usize];
 
         if tile.explored || tile.visible {
-          let is_wall = tile.block_sight;
+          let is_wall = tile.blocks_sight;
           let color = match(tile.visible, is_wall) {
             // Outside the FOV:
             (false, true) => COLOR_DARK_WALL,
@@ -354,7 +354,7 @@ fn main() {
   for y in 0..MAP_HEIGHT {
     for x in 0..MAP_WIDTH {
       fov_map.set(x, y,
-                  !map[(y * MAP_WIDTH + x) as usize].block_sight,
+                  !map[(y * MAP_WIDTH + x) as usize].blocks_sight,
                   !map[(y * MAP_WIDTH + x) as usize].passable);
     }
   }
