@@ -18,7 +18,7 @@ const ROOM_MAX_SIZE: i32 = 12;
 const ROOM_MIN_SIZE: i32 = 5;
 // @feature min_rooms
 const MAX_ROOMS: i32 = 10;
-const MAX_ROOM_MONSTERS: i32 = 3;
+const MAX_ROOM_MONSTERS: i32 = 4;
 
 const PLAYER_IDX: usize = 0; // Always the first object
 
@@ -52,44 +52,31 @@ struct Object {
   y: i32,
   char: char,
   color: Color,
+  name: String,
+  blocks: bool,
+  alive: bool
 }
 
 impl Object {
-  pub fn new(x: i32, y: i32, char: char, color: Color) -> Self {
+  pub fn new(x: i32, y: i32, char: char, name: &str, color: Color, blocks: bool) -> Self {
     Object {
       x: x,
       y: y,
       char: char,
       color: color,
+      name: name.into(),
+      blocks: blocks,
+      alive: false
     }
+  }
+
+  pub fn pos(&self) -> (i32, i32) {
+    (self.x, self.y)
   }
 
   pub fn set_pos(&mut self, x: i32, y: i32) {
     self.x = x;
     self.y = y;
-  }
-
-  /* Move by a given amount */
-  pub fn move_by(&mut self, dx: i32, dy: i32, map: &Map) {
-    let mut new_x = self.x + dx;
-    let mut new_y = self.y + dy;
-
-    if new_x >= MAP_WIDTH {
-      new_x = 0;
-    } else if new_x < 0 {
-      new_x = MAP_WIDTH - 1;
-    }
-
-    if new_y >= MAP_HEIGHT {
-      new_y = 0;
-    } else if new_y < 0 {
-      new_y = MAP_HEIGHT - 1;
-    }
-
-    if map[(new_y * MAP_WIDTH + new_x) as usize].passable {
-      self.x = new_x;
-      self.y = new_y;
-    }
   }
 
   /* Draw the character that represents this object at its current position */
@@ -159,7 +146,7 @@ impl Tile {
 
 type Map = Vec<Tile>;
 
-// Places a rect of empty tiles into `map`
+/* Places a rect of empty tiles into `map` */
 fn create_room(room: Rect, map: &mut Map) {
   for y in (room.y1 + 1)..room.y2 {
     for x in (room.x1 + 1)..room.x2 {
@@ -195,7 +182,7 @@ fn make_map(thread_ctx: &mut ThreadContext, objects: &mut Vec<Object>) -> Map {
 
     if can_place {
       create_room(room, &mut map);
-      place_objects(thread_ctx, room, objects);
+      place_objects(thread_ctx, room, &map, objects);
 
       let (new_x, new_y) = room.center();
 
@@ -223,30 +210,69 @@ fn make_map(thread_ctx: &mut ThreadContext, objects: &mut Vec<Object>) -> Map {
   map
 }
 
-fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, objects: &mut Vec<Object>) {
+fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
+                 objects: &mut Vec<Object>) {
   let num_monsters = thread_ctx.rand.gen_range(0, MAX_ROOM_MONSTERS + 1);
 
   for _ in 0..num_monsters {
+    // @incomplete if we can't place here then try again N times
     let x = thread_ctx.rand.gen_range(room.x1 + 1, room.x2);
     let y = thread_ctx.rand.gen_range(room.y1 + 1, room.y2);
 
-    let roll = thread_ctx.rand.next_f32();
-    let monster = if roll < 0.4 {
-      // Create a witch
-      Object::new(x, y, 'W', colors::GREEN)
-    } else if roll < 0.7 {
-      // Lizard
-      Object::new(x, y, 'L', colors::DARKER_GREEN)
-    } else {
-      // Wizard
-      Object::new(x, y, '@', colors::RED)
-    };
+    if !is_tile_blocked(x, y, map, objects) {
+      let roll = thread_ctx.rand.next_f32();
+      let mut monster = if roll < 0.4 {
+        // Create a witch
+        Object::new(x, y, 'W', "Witch", colors::GREEN, true)
+      } else if roll < 0.7 {
+        // Lizard
+        Object::new(x, y, 'L', "Lizard", colors::DARKER_GREEN, true)
+      } else {
+        // Wizard
+        Object::new(x, y, '@', "Evil Wizard", colors::RED, true)
+      };
 
-    objects.push(monster);
+      monster.alive = true;
+      objects.push(monster);
+    }
   }
 }
 
-fn handle_input(root: &mut Root, player: &mut Object, map : &Map) -> bool {
+/* Move by a given amount if the destination is not blocked */
+fn move_by(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
+  let (x, y) = objects[id].pos();
+
+  let mut new_x = x + dx;
+  let mut new_y = y + dy;
+
+  if new_x >= MAP_WIDTH {
+    new_x = 0;
+  } else if new_x < 0 {
+    new_x = MAP_WIDTH - 1;
+  }
+
+  if new_y >= MAP_HEIGHT {
+    new_y = 0;
+  } else if new_y < 0 {
+    new_y = MAP_HEIGHT - 1;
+  }
+
+  if !is_tile_blocked(new_x, new_y, map, objects) {
+    objects[id].set_pos(new_x, new_y);
+  }
+}
+
+fn is_tile_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
+  if !map[(y * MAP_WIDTH + x) as usize].passable {
+    return true;
+  }
+  let pos = (x, y);
+  objects.iter().any(|object| {
+    object.blocks && object.pos() == pos
+  })
+}
+
+fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> bool {
   use tcod::input::Key;
   use tcod::input::KeyCode::*;
 
@@ -262,10 +288,10 @@ fn handle_input(root: &mut Root, player: &mut Object, map : &Map) -> bool {
     Key { code: Escape, .. } => return true,
 
     // Movement
-    Key { code: Up, .. } => player.move_by(0, -1, map),
-    Key { code: Down, .. } => player.move_by(0, 1, map),
-    Key { code: Left, .. } => player.move_by(-1, 0, map),
-    Key { code: Right, .. } => player.move_by(1, 0, map),
+    Key { code: Up, .. } => move_by(PLAYER_IDX, 0, -1, map, objects),
+    Key { code: Down, .. } => move_by(PLAYER_IDX, 0, 1, map, objects),
+    Key { code: Left, .. } => move_by(PLAYER_IDX, -1, 0, map, objects),
+    Key { code: Right, .. } => move_by(PLAYER_IDX, 1, 0, map, objects),
 
     _ => {}
   }
@@ -343,7 +369,8 @@ fn main() {
   // let rng_seed: &[_] = &[<value>];
   println!("Seed: {:?}", rng_seed);
 
-  let player = Object::new(0, 0, '@', colors::WHITE);
+  let mut player = Object::new(0, 0, '@', "Player Bob", colors::WHITE, true);
+  player.alive = true;
 
   let mut objects = vec![player];
 
@@ -378,10 +405,9 @@ fn main() {
       object.clear(&mut con);
     }
 
-    let player = &mut objects[PLAYER_IDX];
-    previous_player_pos = (player.x, player.y);
+    previous_player_pos = objects[PLAYER_IDX].pos();
 
-    let exit = handle_input(&mut root, player, &map);
+    let exit = handle_input(&mut root, &map, &mut objects);
     if exit {
       break;
     }
