@@ -33,15 +33,29 @@ const COLOR_LIGHT_GROUND: Color = Color { r: 180, g: 160, b: 108 };
 
 
 struct ThreadContext {
-  rand: StdRng
+  rand: StdRng,
+  rand_seed: i32
+}
+
+fn _new_thread_context_from_seed(seed_val: i32, rng_seed: &[usize]) -> ThreadContext {
+    let rng: StdRng = SeedableRng::from_seed(rng_seed);
+    println!("[RNG init] Provided seed: {:?}, RNG Seed: {:?}", seed_val, rng_seed[0]);
+    ThreadContext {
+      rand: rng,
+      rand_seed: seed_val
+    }
 }
 
 impl ThreadContext {
-  pub fn new(seed: &[usize]) -> Self {
-    let rng: StdRng = SeedableRng::from_seed(seed);
-    ThreadContext {
-      rand: rng
-    }
+  pub fn new() -> Self {
+    let seed = 69; // default seed value
+    let rng_seed: &[_] = &[&seed as *const i32 as usize];
+    _new_thread_context_from_seed(seed, rng_seed)
+  }
+
+  pub fn from_seed(seed: i32) -> Self {
+    let rng_seed: &[_] = &[seed as usize];
+    _new_thread_context_from_seed(seed, rng_seed)
   }
 }
 
@@ -152,6 +166,7 @@ enum PlayerAction {
   DidntTakeTurn,
   Exit,
 }
+
 
 /* Places a rect of empty tiles into `map` */
 fn create_room(room: Rect, map: &mut Map) {
@@ -381,13 +396,8 @@ fn main() {
   let mut con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
 
   // Setup the number generator
-  let seed_v = 69;
-  let rng_seed: &[_] = &[&seed_v as *const i32 as usize];
-  let mut thread_ctx = ThreadContext::new(&rng_seed);
-
-  // @incomplete allow a seed to be fed to the program. Stick is in a seed var like so:
-  // let rng_seed: &[_] = &[<value>];
-  println!("Seed: {:?}", rng_seed);
+  let mut thread_ctx = ThreadContext::new();
+  //let mut thread_ctx = ThreadContext::from_seed(2811820);
 
   let mut player = Object::new(0, 0, '@', "Player Bob", colors::WHITE, true);
   player.alive = true;
