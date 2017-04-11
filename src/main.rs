@@ -146,6 +146,13 @@ impl Tile {
 
 type Map = Vec<Tile>;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PlayerAction {
+  TookTurn,
+  DidntTakeTurn,
+  Exit,
+}
+
 /* Places a rect of empty tiles into `map` */
 fn create_room(room: Rect, map: &mut Map) {
   for y in (room.y1 + 1)..room.y2 {
@@ -272,9 +279,10 @@ fn is_tile_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
   })
 }
 
-fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> bool {
+fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> PlayerAction {
   use tcod::input::Key;
   use tcod::input::KeyCode::*;
+  use PlayerAction::*;
 
   let key = root.wait_for_keypress(true);
   match key {
@@ -282,20 +290,32 @@ fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> bool {
     Key { code: Enter, alt: true, .. } => {
       let fullscreen = root.is_fullscreen();
       root.set_fullscreen(!fullscreen);
+      DidntTakeTurn
     }
 
     // Exit game
-    Key { code: Escape, .. } => return true,
+    Key { code: Escape, .. } => Exit,
 
     // Movement
-    Key { code: Up, .. } => move_by(PLAYER_IDX, 0, -1, map, objects),
-    Key { code: Down, .. } => move_by(PLAYER_IDX, 0, 1, map, objects),
-    Key { code: Left, .. } => move_by(PLAYER_IDX, -1, 0, map, objects),
-    Key { code: Right, .. } => move_by(PLAYER_IDX, 1, 0, map, objects),
+    Key { code: Up, .. } => {
+      move_by(PLAYER_IDX, 0, -1, map, objects);
+      TookTurn
+    }
+    Key { code: Down, .. } => {
+      move_by(PLAYER_IDX, 0, 1, map, objects);
+      TookTurn
+    }
+    Key { code: Left, .. } => {
+      move_by(PLAYER_IDX, -1, 0, map, objects);
+      TookTurn
+    }
+    Key { code: Right, .. } => {
+      move_by(PLAYER_IDX, 1, 0, map, objects);
+      TookTurn
+    }
 
-    _ => {}
+    _ => DidntTakeTurn,
   }
-  false
 }
 
 fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
@@ -407,8 +427,15 @@ fn main() {
 
     previous_player_pos = objects[PLAYER_IDX].pos();
 
+    // @idea allow the player to do things after death?
+    // @idea copy the approach that Dwarf Fortress takes for world gen. Make a world and
+    //   then persist it across lives. Allow people to drop out and play as a new character
+    //   with the previous player being taken over by the game AI system.
+    //   I particularly like the idea of leaving the corpse and allowing the next character
+    //   to visit the body and take scraps if anything is still there.
+
     let exit = handle_input(&mut root, &map, &mut objects);
-    if exit {
+    if exit == PlayerAction::Exit {
       break;
     }
   }
