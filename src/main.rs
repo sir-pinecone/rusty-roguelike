@@ -31,6 +31,8 @@ const COLOR_LIGHT_WALL: Color = Color { r: 130, g: 100, b: 90 };
 const COLOR_DARK_GROUND: Color = Color { r: 50, g: 50, b: 150 };
 const COLOR_LIGHT_GROUND: Color = Color { r: 180, g: 160, b: 108 };
 
+const DEFAULT_DEATH_CHAR: char = 'x';
+
 
 struct ThreadContext {
   rand: StdRng,
@@ -65,22 +67,27 @@ struct Object {
   x: i32,
   y: i32,
   char: char,
+  death_char: char,
   color: Color,
   name: String,
   blocks: bool,
-  alive: bool
+  alive: bool,
+  show_when_dead: bool
 }
 
 impl Object {
-  pub fn new(x: i32, y: i32, char: char, name: &str, color: Color, blocks: bool) -> Self {
+  pub fn new(x: i32, y: i32, char: char, death_char: char, name: &str, color: Color,
+             blocks: bool, show_dead: bool) -> Self {
     Object {
       x: x,
       y: y,
       char: char,
+      death_char: death_char,
       color: color,
       name: name.into(),
       blocks: blocks,
-      alive: false
+      alive: false,
+      show_when_dead: show_dead
     }
   }
 
@@ -95,8 +102,15 @@ impl Object {
 
   /* Draw the character that represents this object at its current position */
   pub fn draw(&self, con: &mut Console) {
-    con.set_default_foreground(self.color);
-    con.put_char(self.x, self.y, self.char, BackgroundFlag::None);
+    if self.alive || self.show_when_dead {
+      let c = if self.alive {
+        self.char
+      } else {
+        self.death_char
+      };
+      con.set_default_foreground(self.color);
+      con.put_char(self.x, self.y, c, BackgroundFlag::None);
+    }
   }
 
   /* Erase the character that represents this object */
@@ -245,13 +259,13 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
       let roll = thread_ctx.rand.next_f32();
       let mut monster = if roll < 0.4 {
         // Create a witch
-        Object::new(x, y, 'W', "Witch", colors::GREEN, true)
+        Object::new(x, y, 'W', DEFAULT_DEATH_CHAR, "Witch", colors::GREEN, true, true)
       } else if roll < 0.7 {
         // Lizard
-        Object::new(x, y, 'L', "Lizard", colors::DARKER_GREEN, true)
+        Object::new(x, y, 'L', DEFAULT_DEATH_CHAR, "Lizard", colors::DARKER_GREEN, true, true)
       } else {
         // Wizard
-        Object::new(x, y, '@', "Evil Wizard", colors::RED, true)
+        Object::new(x, y, '@', DEFAULT_DEATH_CHAR, "Evil Wizard", colors::RED, true, true)
       };
 
       monster.alive = true;
@@ -400,7 +414,7 @@ fn main() {
   let mut thread_ctx = ThreadContext::new();
   //let mut thread_ctx = ThreadContext::from_seed(2811820);
 
-  let mut player = Object::new(0, 0, '@', "Player Bob", colors::WHITE, true);
+  let mut player = Object::new(0, 0, '@', 'X', "Player Bob", colors::WHITE, true, true);
   player.alive = true;
 
   let mut objects = vec![player];
