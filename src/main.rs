@@ -300,31 +300,32 @@ fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> PlayerAc
   use PlayerAction::*;
 
   let key = root.wait_for_keypress(true);
-  match key {
+  let is_player_alive = objects[PLAYER_IDX].alive;
+  match (key, is_player_alive) {
     // Toggle fullscreen
-    Key { code: Enter, alt: true, .. } => {
+    (Key { code: Enter, alt: true, .. }, _) => {
       let fullscreen = root.is_fullscreen();
       root.set_fullscreen(!fullscreen);
       DidntTakeTurn
     }
 
     // Exit game
-    Key { code: Escape, .. } => Exit,
+    (Key { code: Escape, .. }, _) => Exit,
 
     // Movement
-    Key { code: Up, .. } => {
+    (Key { code: Up, .. }, true) => {
       move_by(PLAYER_IDX, 0, -1, map, objects);
       TookTurn
     }
-    Key { code: Down, .. } => {
+    (Key { code: Down, .. }, true) => {
       move_by(PLAYER_IDX, 0, 1, map, objects);
       TookTurn
     }
-    Key { code: Left, .. } => {
+    (Key { code: Left, .. }, true) => {
       move_by(PLAYER_IDX, -1, 0, map, objects);
       TookTurn
     }
-    Key { code: Right, .. } => {
+    (Key { code: Right, .. }, true) => {
       move_by(PLAYER_IDX, 1, 0, map, objects);
       TookTurn
     }
