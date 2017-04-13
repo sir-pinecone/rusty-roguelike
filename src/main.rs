@@ -35,7 +35,9 @@ const COLOR_DARK_GROUND: Color = Color { r: 50, g: 50, b: 150 };
 const COLOR_LIGHT_GROUND: Color = Color { r: 180, g: 160, b: 108 };
 
 const DEFAULT_DEATH_CHAR: char = 'x';
-const DEBUG_MODE: bool = true; // @incomplete make this a build flag
+
+const DEBUG_MODE:        bool = true; // @incomplete make this a build flag
+const DEBUG_DISABLE_FOG: bool = false;
 
 /* Mutably borrow two *separate elements from the given slice.
  * Panics when the indexes are equal or out of bounds.
@@ -494,7 +496,7 @@ fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object],
       for x in 0..MAP_WIDTH {
         let tile = &map[(y * MAP_WIDTH + x) as usize];
 
-        if tile.explored || tile.visible {
+        if tile.explored || DEBUG_DISABLE_FOG || tile.visible {
           let is_wall = tile.blocks_sight;
           let color = match(tile.visible, is_wall) {
             // Outside the FOV:
@@ -511,7 +513,7 @@ fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object],
   }
 
   for object in objects {
-    if fov_map.is_in_fov(object.x, object.y) {
+    if DEBUG_DISABLE_FOG || fov_map.is_in_fov(object.x, object.y) {
       object.draw(con);
     }
   }
