@@ -240,8 +240,10 @@ enum PlayerAction {
 
 #[derive(Debug)]
 struct TileCollisionInfo {
-  collided: bool,
-  collided_id: Option<usize>
+  collision: bool,
+  obj_collision: bool,
+  tile_collision: bool,
+  collision_id: Option<usize>
 }
 
 
@@ -309,29 +311,32 @@ fn make_map(thread_ctx: &mut ThreadContext, objects: &mut Vec<Object>) -> Map {
   map
 }
 
-fn check_tile_for_object_collision(x: i32, y: i32, map: &Map,
-                                   objects: &[Object]) -> TileCollisionInfo {
-  let pos = (x, y);
-  let id = objects.iter().position(|object| {
-    object.pos() == pos
-  });
-  let collided = (id != None);
-  let info = TileCollisionInfo { collided: collided, collided_id: id };
-  return info;
-}
+fn check_tile_for_collision(x: i32, y: i32, map: &Map, objects: &[Object]) -> TileCollisionInfo {
+  let mut coll_info = TileCollisionInfo {
+    collision: false,
+    obj_collision: false,
+    tile_collision: false,
+    collision_id: None
+  };
 
-fn is_tile_passable(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
-  return map[(y * MAP_WIDTH + x) as usize].passable;
-}
+  let tile_passable = map[(y * MAP_WIDTH + x) as usize].passable;
+  if tile_passable {
+    // Find object collision
+    let pos = (x, y);
+    let id = objects.iter().position(|object| {
+      object.pos() == pos
+    });
+    let collision = (id != None);
 
-fn is_tile_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
-  if !is_tile_passable(x, y, map, objects) {
-    return true;
+    coll_info.collision = collision;
+    coll_info.obj_collision = collision;
+    coll_info.collision_id = id;
   }
   else {
-    let tile_info = check_tile_for_object_collision(x, y, map, objects);
-    return tile_info.collided;
+    coll_info.collision = true;
+    coll_info.tile_collision = true;
   }
+  return coll_info;
 }
 
 fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
@@ -343,7 +348,8 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
     let x = thread_ctx.rand.gen_range(room.x1 + 1, room.x2);
     let y = thread_ctx.rand.gen_range(room.y1 + 1, room.y2);
 
-    if !is_tile_blocked(x, y, map, objects) {
+    let coll_info = check_tile_for_collision(x, y, map, objects);
+    if !coll_info.collision {
       let roll = thread_ctx.rand.next_f32();
       let mut monster = if roll < 0.4 {
         // Create a witch
@@ -377,25 +383,16 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
   }
 }
 
-fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object],
-                on_collision: Option<&Fn(&mut Object)>) {
+fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object]) -> TileCollisionInfo {
   let (x, y) = objects[id].pos();
   let new_x = x + dx;
   let new_y = y + dy;
 
-  // @cleanup get collision info that includes a collision with a tile. Can use that to
-  // change the properties of the tiles.
-  if is_tile_passable(new_x, new_y, map, objects) {
-    let info = check_tile_for_object_collision(new_x, new_y, map, objects);
-    if info.collided {
-      if on_collision.is_some() {
-        let collision_id = info.collided_id.unwrap();
-        on_collision.unwrap()(&mut objects[collision_id]);
-      }
-    } else {
-      objects[id].set_pos(new_x, new_y);
-    }
+  let coll_info = check_tile_for_collision(new_x, new_y, map, objects);
+  if !coll_info.collision {
+    objects[id].set_pos(new_x, new_y);
   }
+  return coll_info;
 }
 
 fn move_towards(id: usize, (target_x, target_y): (i32, i32), map:&Map, objects: &mut [Object]) {
@@ -405,16 +402,15 @@ fn move_towards(id: usize, (target_x, target_y): (i32, i32), map:&Map, objects: 
 
   let dx = (dx as f32 / distance).round() as i32;
   let dy = (dy as f32 / distance).round() as i32;
-  attempt_move(id, dx, dy, map, objects, None);
-}
-
-fn player_attack(target: &mut Object) {
-  println!("The {} laughs at your puny efforts to attack him!", target.name);
+  attempt_move(id, dx, dy, map, objects);
 }
 
 fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
-  let on_collision = &player_attack;
-  attempt_move(PLAYER_IDX, dx, dy, map, objects, Some(on_collision));
+  let coll_info = attempt_move(PLAYER_IDX, dx, dy, map, objects);
+  if coll_info.obj_collision && coll_info.collision_id.is_some() {
+    let (player, target) = mut_two(PLAYER_IDX, coll_info.collision_id.unwrap(), objects);
+    player.attack(target);
+  }
 }
 
 fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut FovMap) {
