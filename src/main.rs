@@ -563,7 +563,7 @@ fn main() {
   let mut player = Object::new(0, 0, '@', 'X', "Player Bob", colors::WHITE, true, true);
   player.alive = true;
   player.char_attributes = Some(components::CharacterAttributes{
-    max_hp: 30, hp: 30, defense: 2, power: 5
+    max_hp: 30, hp: 30, defense: 2, power: 7
   });
 
   let mut objects = vec![player];
@@ -631,7 +631,7 @@ fn main() {
     // Update monsters
     if game_running && player_action == PlayerAction::TookTurn {
       for id in 0..objects.len() {
-        if objects[id].brain.is_some() {
+        if objects[id].brain.is_some() && objects[id].alive {
           ai_take_turn(id, &mut objects, &map, &mut fov_map);
         }
       }
