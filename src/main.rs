@@ -236,6 +236,8 @@ impl Tile {
     tile.explored = false;
     tile.visible = false;
   }
+
+  // @feature show a list of objects that reside on a tile
 }
 
 type Map = Vec<Tile>;
@@ -548,13 +550,14 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
     }
   }
 
-  for obj_id in 1..objects.len() {
-    if game_state.debug_disable_fog || fov_map.is_in_fov(objects[obj_id].x, objects[obj_id].y) {
-      objects[obj_id].draw(con);
-    }
-  }
+  let mut to_draw: Vec<_> = objects.iter()
+                                    .filter(|o| game_state.debug_disable_fog || fov_map.is_in_fov(o.x, o.y))
+                                    .collect();
 
-  objects[PLAYER_IDX].draw(con);
+  to_draw.sort_by(|o1, o2| { o1.blocks.cmp(&o2.blocks) });
+  for obj in &to_draw {
+    obj.draw(con);
+  }
 
   blit(con, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (0, 0), 1.0, 1.0);
 
