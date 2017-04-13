@@ -409,7 +409,12 @@ fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
   let coll_info = attempt_move(PLAYER_IDX, dx, dy, map, objects);
   if coll_info.obj_collision && coll_info.collision_id.is_some() {
     let (player, target) = mut_two(PLAYER_IDX, coll_info.collision_id.unwrap(), objects);
-    player.attack(target);
+    if target.alive {
+      player.attack(target);
+    }
+    else {
+      println!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name);
+    }
   }
 }
 
