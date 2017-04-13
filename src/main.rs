@@ -1,6 +1,7 @@
 extern crate tcod;
 extern crate rand;
 
+use std::env;
 use std::cmp;
 use rand::{Rng, SeedableRng, StdRng};
 use tcod::console::*;
@@ -434,8 +435,28 @@ fn main() {
   let mut con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
 
   // Setup the number generator
-  let mut thread_ctx = ThreadContext::new();
-  //let mut thread_ctx = ThreadContext::from_seed(2811820);
+  let mut thread_ctx: ThreadContext;
+
+  let mut provided_rng_seed: Option<i32> = None;
+  let mut found_seed_flag = false;
+
+  for argument in env::args() {
+    if found_seed_flag {
+      provided_rng_seed = Some(argument.trim().parse().expect("seed flag must be a number"));
+    }
+    if argument == "--seed" {
+      found_seed_flag = true;
+    }
+  }
+
+  match provided_rng_seed {
+    Some(provided_rng_seed) => {
+      thread_ctx = ThreadContext::from_seed(provided_rng_seed);
+    }
+    None => {
+      thread_ctx = ThreadContext::new();
+    }
+  }
 
   let mut player = Object::new(0, 0, '@', 'X', "Player Bob", colors::WHITE, true, true);
   player.alive = true;
