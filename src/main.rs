@@ -333,7 +333,7 @@ fn check_tile_for_collision(x: i32, y: i32, map: &Map, objects: &[Object]) -> Ti
     // Find object collision
     let pos = (x, y);
     let id = objects.iter().position(|object| {
-      object.pos() == pos
+      object.blocks && (object.pos() == pos)
     });
     let collision = (id != None);
 
@@ -548,11 +548,13 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
     }
   }
 
-  for object in objects {
-    if game_state.debug_disable_fog || fov_map.is_in_fov(object.x, object.y) {
-      object.draw(con);
+  for obj_id in 1..objects.len() {
+    if game_state.debug_disable_fog || fov_map.is_in_fov(objects[obj_id].x, objects[obj_id].y) {
+      objects[obj_id].draw(con);
     }
   }
+
+  objects[PLAYER_IDX].draw(con);
 
   blit(con, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (0, 0), 1.0, 1.0);
 
