@@ -662,10 +662,11 @@ fn main() {
         root.set_default_foreground(colors::WHITE);
       }
       root.print_ex(1, SCREEN_HEIGHT - 4, BackgroundFlag::None, TextAlignment::Left,
-                    format!("{} Seed Label: {}", seed_type_label, thread_ctx.rand_seed));
+                    format!("{} Seed: {}", seed_type_label, thread_ctx.rand_seed));
     }
 
     root.flush();
+    root.clear(); // clears text
 
     // Erase objects at their old locations before moving
     for object in &objects {
