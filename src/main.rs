@@ -281,12 +281,10 @@ fn make_map(thread_ctx: &mut ThreadContext, objects: &mut Vec<Object>) -> Map {
 
     if can_place {
       create_room(room, &mut map);
-      place_objects(thread_ctx, room, &map, objects);
 
       let (new_x, new_y) = room.center();
 
-      if i == 0 {
-        // @assumption we always create a room when i = 0 (first room created)
+      if rooms.is_empty() {
         objects[PLAYER_IDX].set_pos(new_x, new_y);
       } else {
         // connect to previous room with a tunnel
@@ -301,6 +299,8 @@ fn make_map(thread_ctx: &mut ThreadContext, objects: &mut Vec<Object>) -> Map {
           create_h_tunnel(prev_x, new_x, new_y, &mut map);
         }
       }
+
+      place_objects(thread_ctx, room, &map, objects);
 
       rooms.push(room);
     }
@@ -326,10 +326,12 @@ fn is_tile_passable(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
 
 fn is_tile_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
   if !is_tile_passable(x, y, map, objects) {
+    return true;
+  }
+  else {
     let tile_info = check_tile_for_object_collision(x, y, map, objects);
     return tile_info.collided;
   }
-  return false;
 }
 
 fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
