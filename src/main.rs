@@ -339,6 +339,11 @@ fn check_tile_for_collision(x: i32, y: i32, map: &Map, objects: &[Object]) -> Ti
   return coll_info;
 }
 
+fn npc_name(label: &str, objects: &[Object]) -> String {
+  let s = format!("{}_{:}", label, objects.len() + 1);
+  return s;
+}
+
 fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
                  objects: &mut Vec<Object>) {
   let num_monsters = thread_ctx.rand.gen_range(0, MAX_ROOM_MONSTERS + 1);
@@ -353,7 +358,8 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
       let roll = thread_ctx.rand.next_f32();
       let mut monster = if roll < 0.4 {
         // Create a witch
-        let mut witch = Object::new(x, y, 'W', DEFAULT_DEATH_CHAR, "Witch", colors::GREEN, true, true);
+        let name = npc_name("Witch", objects);
+        let mut witch = Object::new(x, y, 'W', DEFAULT_DEATH_CHAR, &name, colors::GREEN, true, true);
         witch.char_attributes = Some(components::CharacterAttributes {
           max_hp: 13, hp: 10, defense: 4, power: 3
         });
@@ -361,7 +367,8 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
         witch
       } else if roll < 0.7 {
         // Lizard
-        let mut lizard = Object::new(x, y, 'L', DEFAULT_DEATH_CHAR, "Lizard", colors::DARKER_GREEN, true, true);
+        let name = npc_name("Lizard", objects);
+        let mut lizard = Object::new(x, y, 'L', DEFAULT_DEATH_CHAR, &name, colors::DARKER_GREEN, true, true);
         lizard.char_attributes = Some(components::CharacterAttributes {
           max_hp: 7, hp: 5, defense: 2, power: 1
         });
@@ -369,7 +376,8 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
         lizard
       } else {
         // Wizard
-        let mut wizard = Object::new(x, y, '@', DEFAULT_DEATH_CHAR, "Evil Wizard", colors::RED, true, true);
+        let name = npc_name("Wizard", objects);
+        let mut wizard = Object::new(x, y, '@', DEFAULT_DEATH_CHAR, &name, colors::RED, true, true);
         wizard.char_attributes = Some(components::CharacterAttributes {
           max_hp: 16, hp: 12, defense: 6, power: 4
         });
