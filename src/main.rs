@@ -181,6 +181,12 @@ enum PlayerAction {
   Exit,
 }
 
+#[derive(Debug)]
+struct TileCollisionInfo {
+  collided: bool,
+  collided_id: Option<usize>
+}
+
 
 /* Places a rect of empty tiles into `map` */
 fn create_room(room: Rect, map: &mut Map) {
@@ -246,6 +252,29 @@ fn make_map(thread_ctx: &mut ThreadContext, objects: &mut Vec<Object>) -> Map {
   map
 }
 
+fn check_tile_for_object_collision(x: i32, y: i32, map: &Map,
+                                   objects: &[Object]) -> TileCollisionInfo {
+  let pos = (x, y);
+  let id = objects.iter().position(|object| {
+    object.pos() == pos
+  });
+  let collided = (id != None);
+  let info = TileCollisionInfo { collided: collided, collided_id: id };
+  return info;
+}
+
+fn is_tile_passable(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
+  return map[(y * MAP_WIDTH + x) as usize].passable;
+}
+
+fn is_tile_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
+  if !is_tile_passable(x, y, map, objects) {
+    let tile_info = check_tile_for_object_collision(x, y, map, objects);
+    return tile_info.collided;
+  }
+  return false;
+}
+
 fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
                  objects: &mut Vec<Object>) {
   let num_monsters = thread_ctx.rand.gen_range(0, MAX_ROOM_MONSTERS + 1);
@@ -274,38 +303,29 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
   }
 }
 
-/* Move by a given amount if the destination is not blocked */
-fn move_by(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
+fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object],
+                collided_with_object: &Fn(&mut Object)) {
   let (x, y) = objects[id].pos();
+  let new_x = x + dx;
+  let new_y = y + dy;
 
-  let mut new_x = x + dx;
-  let mut new_y = y + dy;
-
-  if new_x >= MAP_WIDTH {
-    new_x = 0;
-  } else if new_x < 0 {
-    new_x = MAP_WIDTH - 1;
-  }
-
-  if new_y >= MAP_HEIGHT {
-    new_y = 0;
-  } else if new_y < 0 {
-    new_y = MAP_HEIGHT - 1;
-  }
-
-  if !is_tile_blocked(new_x, new_y, map, objects) {
-    objects[id].set_pos(new_x, new_y);
+  if is_tile_passable(new_x, new_y, map, objects) {
+    let info = check_tile_for_object_collision(new_x, new_y, map, objects);
+    if info.collided {
+      collided_with_object(&mut objects[info.collided_id.unwrap()]);
+    } else {
+      objects[id].set_pos(new_x, new_y);
+    }
   }
 }
 
-fn is_tile_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
-  if !map[(y * MAP_WIDTH + x) as usize].passable {
-    return true;
-  }
-  let pos = (x, y);
-  objects.iter().any(|object| {
-    object.blocks && object.pos() == pos
-  })
+fn player_attack(target: &mut Object) {
+  println!("The {} laughs at your puny efforts to attack him!", target.name);
+}
+
+fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
+  let collided_with_object = &player_attack;
+  attempt_move(PLAYER_IDX, dx, dy, map, objects, collided_with_object);
 }
 
 fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> PlayerAction {
@@ -328,19 +348,19 @@ fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> PlayerAc
 
     // Movement
     (Key { code: Up, .. }, true) => {
-      move_by(PLAYER_IDX, 0, -1, map, objects);
+      player_move_or_attack(0, -1, map, objects);
       TookTurn
     }
     (Key { code: Down, .. }, true) => {
-      move_by(PLAYER_IDX, 0, 1, map, objects);
+      player_move_or_attack(0, 1, map, objects);
       TookTurn
     }
     (Key { code: Left, .. }, true) => {
-      move_by(PLAYER_IDX, -1, 0, map, objects);
+      player_move_or_attack(-1, 0, map, objects);
       TookTurn
     }
     (Key { code: Right, .. }, true) => {
-      move_by(PLAYER_IDX, 1, 0, map, objects);
+      player_move_or_attack(1, 0, map, objects);
       TookTurn
     }
 
@@ -468,9 +488,11 @@ fn main() {
     if objects[PLAYER_IDX].alive && player_action == PlayerAction::TookTurn {
       for object in &objects { // @cleanup figure out how to get a slice of this, e.g. objects[1:]
         if (object as *const _) != (&objects[PLAYER_IDX] as *const _) {
+          // @incomplete only attack if next to player
           println!("The {} coughs at you!", object.name);
         }
       }
     }
   }
 }
+
