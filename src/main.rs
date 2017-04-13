@@ -8,6 +8,8 @@ use tcod::console::*;
 use tcod::colors::{self, Color};
 use tcod::map::{Map as FovMap, FovAlgorithm};
 
+mod components;
+
 const SCREEN_WIDTH: i32 = 80;
 const SCREEN_HEIGHT: i32 = 50;
 const LIMIT_FPS: i32 = 30;
@@ -76,7 +78,11 @@ struct Object {
   name: String,
   blocks: bool,
   alive: bool,
-  show_when_dead: bool
+  show_when_dead: bool,
+
+  // components
+  char_attributes: Option<components::CharacterAttributes>,
+  brain: Option<components::Ai>,
 }
 
 impl Object {
@@ -91,7 +97,10 @@ impl Object {
       name: name.into(),
       blocks: blocks,
       alive: false,
-      show_when_dead: show_dead
+      show_when_dead: show_dead,
+
+      char_attributes: None,
+      brain: None
     }
   }
 
@@ -102,6 +111,12 @@ impl Object {
   pub fn set_pos(&mut self, x: i32, y: i32) {
     self.x = x;
     self.y = y;
+  }
+
+  pub fn distance_to(&self, other: &Object) -> f32 {
+    let dx = other.x - self.x;
+    let dy = other.y - self.y;
+    ((dx.pow(2) + dy.pow(2)) as f32).sqrt()
   }
 
   /* Draw the character that represents this object at its current position */
@@ -292,13 +307,28 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
       let roll = thread_ctx.rand.next_f32();
       let mut monster = if roll < 0.4 {
         // Create a witch
-        Object::new(x, y, 'W', DEFAULT_DEATH_CHAR, "Witch", colors::GREEN, true, true)
+        let mut witch = Object::new(x, y, 'W', DEFAULT_DEATH_CHAR, "Witch", colors::GREEN, true, true);
+        witch.char_attributes = Some(components::CharacterAttributes {
+          max_hp: 13, hp: 10, defense: 4, power: 3
+        });
+        witch.brain = Some(components::Ai);
+        witch
       } else if roll < 0.7 {
         // Lizard
-        Object::new(x, y, 'L', DEFAULT_DEATH_CHAR, "Lizard", colors::DARKER_GREEN, true, true)
+        let mut lizard = Object::new(x, y, 'L', DEFAULT_DEATH_CHAR, "Lizard", colors::DARKER_GREEN, true, true);
+        lizard.char_attributes = Some(components::CharacterAttributes {
+          max_hp: 7, hp: 5, defense: 2, power: 1
+        });
+        lizard.brain = Some(components::Ai);
+        lizard
       } else {
         // Wizard
-        Object::new(x, y, '@', DEFAULT_DEATH_CHAR, "Evil Wizard", colors::RED, true, true)
+        let mut wizard = Object::new(x, y, '@', DEFAULT_DEATH_CHAR, "Evil Wizard", colors::RED, true, true);
+        wizard.char_attributes = Some(components::CharacterAttributes {
+          max_hp: 16, hp: 12, defense: 6, power: 4
+        });
+        wizard.brain = Some(components::Ai);
+        wizard
       };
 
       monster.alive = true;
@@ -308,7 +338,7 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
 }
 
 fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object],
-                collided_with_object: &Fn(&mut Object)) {
+                collided_with_object: Option<&Fn(&mut Object)>) {
   let (x, y) = objects[id].pos();
   let new_x = x + dx;
   let new_y = y + dy;
@@ -316,11 +346,27 @@ fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object],
   if is_tile_passable(new_x, new_y, map, objects) {
     let info = check_tile_for_object_collision(new_x, new_y, map, objects);
     if info.collided {
-      collided_with_object(&mut objects[info.collided_id.unwrap()]);
+      let collision_id = info.collided_id.unwrap();
+      match collided_with_object {
+        Some(collided_with_object) => {
+          collided_with_object(&mut objects[collision_id]);
+        }
+        None => {}
+      }
     } else {
       objects[id].set_pos(new_x, new_y);
     }
   }
+}
+
+fn move_towards(id: usize, (target_x, target_y): (i32, i32), map:&Map, objects: &mut [Object]) {
+  let dx = target_x - objects[id].x;
+  let dy = target_y - objects[id].y;
+  let distance = ((dx.pow(2) + dy.pow(2)) as f32).sqrt();
+
+  let dx = (dx as f32 / distance).round() as i32;
+  let dy = (dy as f32 / distance).round() as i32;
+  attempt_move(id, dx, dy, map, objects, None);
 }
 
 fn player_attack(target: &mut Object) {
@@ -329,7 +375,22 @@ fn player_attack(target: &mut Object) {
 
 fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
   let collided_with_object = &player_attack;
-  attempt_move(PLAYER_IDX, dx, dy, map, objects, collided_with_object);
+  attempt_move(PLAYER_IDX, dx, dy, map, objects, Some(collided_with_object));
+}
+
+fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut FovMap) {
+  let (npc_x, npc_y) = objects[npc_id].pos();
+
+  if fov_map.is_in_fov(npc_x, npc_y) {
+    if objects[npc_id].distance_to(&objects[PLAYER_IDX]) >= 2.0 {
+      let player_pos = objects[PLAYER_IDX].pos();
+      move_towards(npc_id, player_pos, map, objects);
+    }
+    else if objects[PLAYER_IDX].alive {
+      let npc = &objects[npc_id];
+      println!("The {} attacks the player!", npc.name);
+    }
+  }
 }
 
 fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> PlayerAction {
@@ -460,6 +521,9 @@ fn main() {
 
   let mut player = Object::new(0, 0, '@', 'X', "Player Bob", colors::WHITE, true, true);
   player.alive = true;
+  player.char_attributes = Some(components::CharacterAttributes{
+    max_hp: 30, hp: 30, defense: 2, power: 5
+  });
 
   let mut objects = vec![player];
 
@@ -476,8 +540,9 @@ fn main() {
   }
 
   let mut previous_player_pos = (-1, -1);
+  let mut game_running = true;
 
-  while !root.window_closed() {
+  while game_running {
     let recompute_fov = previous_player_pos != (objects[PLAYER_IDX].x, objects[PLAYER_IDX].y);
     if recompute_fov {
       let player_ref = &objects[PLAYER_IDX];
@@ -517,18 +582,18 @@ fn main() {
     //   to visit the body and take scraps if anything is still there.
 
     let player_action = handle_input(&mut root, &map, &mut objects);
-    if player_action == PlayerAction::Exit {
-      break;
+
+    if player_action == PlayerAction::Exit || root.window_closed() {
+      game_running = false;
     }
 
     // Update monsters
-    if objects[PLAYER_IDX].alive && player_action == PlayerAction::TookTurn {
-      for id in 1..objects.len() {
-        let object = &objects[id];
-        // @incomplete only attack if next to player
-        println!("The {} coughs at you!", object.name);
+    if game_running && player_action == PlayerAction::TookTurn {
+      for id in 0..objects.len() {
+        if objects[id].brain.is_some() {
+          ai_take_turn(id, &mut objects, &map, &mut fov_map);
+        }
       }
     }
   }
 }
-
