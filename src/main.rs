@@ -459,9 +459,18 @@ fn main() {
     //   I particularly like the idea of leaving the corpse and allowing the next character
     //   to visit the body and take scraps if anything is still there.
 
-    let exit = handle_input(&mut root, &map, &mut objects);
-    if exit == PlayerAction::Exit {
+    let player_action = handle_input(&mut root, &map, &mut objects);
+    if player_action == PlayerAction::Exit {
       break;
+    }
+
+    // Update monsters
+    if objects[PLAYER_IDX].alive && player_action == PlayerAction::TookTurn {
+      for object in &objects { // @cleanup figure out how to get a slice of this, e.g. objects[1:]
+        if (object as *const _) != (&objects[PLAYER_IDX] as *const _) {
+          println!("The {} coughs at you!", object.name);
+        }
+      }
     }
   }
 }
