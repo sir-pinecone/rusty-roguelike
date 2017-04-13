@@ -486,11 +486,10 @@ fn main() {
 
     // Update monsters
     if objects[PLAYER_IDX].alive && player_action == PlayerAction::TookTurn {
-      for object in &objects { // @cleanup figure out how to get a slice of this, e.g. objects[1:]
-        if (object as *const _) != (&objects[PLAYER_IDX] as *const _) {
-          // @incomplete only attack if next to player
-          println!("The {} coughs at you!", object.name);
-        }
+      for id in 1..objects.len() {
+        let object = &objects[id];
+        // @incomplete only attack if next to player
+        println!("The {} coughs at you!", object.name);
       }
     }
   }
