@@ -140,11 +140,16 @@ impl Object {
 
   // @incomplete switch to f32 for damage/health, etc
   pub fn take_damage(&mut self, damage: i32) {
-    if damage > 0 {
+    if self.alive && damage > 0 {
       if let Some(char_attributes) = self.char_attributes.as_mut() {
         char_attributes.hp -= cmp::min(damage, char_attributes.hp);
         if char_attributes.hp <= 0 {
           self.alive = false;
+        }
+      }
+      if let Some(char_attributes) = self.char_attributes {
+        if !self.alive {
+          on_object_death(self);
         }
       }
     }
@@ -391,6 +396,22 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
 
       monster.alive = true;
       objects.push(monster);
+    }
+  }
+}
+
+fn on_object_death(obj: &mut Object) {
+  match obj.brain {
+    Some(brain) => {
+      // AI
+      println!("NPC {} died!", obj.name);
+      obj.blocks = false;
+      obj.brain = None
+    },
+    // player
+    None => {
+      println!("Player {} died!", obj.name);
+      obj.blocks = false;
     }
   }
 }
