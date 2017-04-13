@@ -338,7 +338,7 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
 }
 
 fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object],
-                collided_with_object: Option<&Fn(&mut Object)>) {
+                on_collision: Option<&Fn(&mut Object)>) {
   let (x, y) = objects[id].pos();
   let new_x = x + dx;
   let new_y = y + dy;
@@ -346,12 +346,9 @@ fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object],
   if is_tile_passable(new_x, new_y, map, objects) {
     let info = check_tile_for_object_collision(new_x, new_y, map, objects);
     if info.collided {
-      let collision_id = info.collided_id.unwrap();
-      match collided_with_object {
-        Some(collided_with_object) => {
-          collided_with_object(&mut objects[collision_id]);
-        }
-        None => {}
+      if on_collision.is_some() {
+        let collision_id = info.collided_id.unwrap();
+        on_collision.unwrap()(&mut objects[collision_id]);
       }
     } else {
       objects[id].set_pos(new_x, new_y);
