@@ -142,7 +142,7 @@ impl Object {
   pub fn take_damage(&mut self, damage: i32) {
     if damage > 0 {
       if let Some(char_attributes) = self.char_attributes.as_mut() {
-        char_attributes.hp -= damage;
+        char_attributes.hp -= cmp::min(damage, char_attributes.hp);
         if char_attributes.hp <= 0 {
           self.alive = false;
         }
