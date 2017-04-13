@@ -37,6 +37,19 @@ const COLOR_LIGHT_GROUND: Color = Color { r: 180, g: 160, b: 108 };
 const DEFAULT_DEATH_CHAR: char = 'x';
 const DEBUG_MODE: bool = true; // @incomplete make this a build flag
 
+/* Mutably borrow two *separate elements from the given slice.
+ * Panics when the indexes are equal or out of bounds.
+ */
+fn mut_two<T>(first_index: usize, second_index: usize, items: &mut [T]) -> (&mut T, &mut T) {
+  assert!(first_index != second_index);
+  let split_at = cmp::max(first_index, second_index);
+  let (first_splice, second_splice) = items.split_at_mut(split_at);
+  if first_index < second_index {
+    (&mut first_splice[first_index], &mut second_splice[0])
+  } else {
+    (&mut second_splice[0], &mut first_splice[second_index])
+  }
+}
 
 struct ThreadContext {
   rand: StdRng,
@@ -117,6 +130,26 @@ impl Object {
     let dx = other.x - self.x;
     let dy = other.y - self.y;
     ((dx.pow(2) + dy.pow(2)) as f32).sqrt()
+  }
+
+  // @incomplete switch to f32 for damage/health, etc
+  pub fn take_damage(&mut self, damage: i32) {
+    if damage > 0 {
+      if let Some(char_attributes) = self.char_attributes.as_mut() {
+        char_attributes.hp -= damage;
+      }
+    }
+  }
+
+  pub fn attack(&mut self, target: &mut Object) {
+    let damage = self.char_attributes.map_or(0, |x| x.power) -
+                 target.char_attributes.map_or(0, |x| x.defense);
+    if damage > 0 {
+      println!("{} attacks {} and deals {} damage!", self.name, target.name, damage);
+      target.take_damage(damage);
+    } else {
+      println!("{} attacks {}, but it has no effect!", self.name, target.name);
+    }
   }
 
   /* Draw the character that represents this object at its current position */
@@ -343,6 +376,8 @@ fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object],
   let new_x = x + dx;
   let new_y = y + dy;
 
+  // @cleanup get collision info that includes a collision with a tile. Can use that to
+  // change the properties of the tiles.
   if is_tile_passable(new_x, new_y, map, objects) {
     let info = check_tile_for_object_collision(new_x, new_y, map, objects);
     if info.collided {
@@ -371,8 +406,8 @@ fn player_attack(target: &mut Object) {
 }
 
 fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
-  let collided_with_object = &player_attack;
-  attempt_move(PLAYER_IDX, dx, dy, map, objects, Some(collided_with_object));
+  let on_collision = &player_attack;
+  attempt_move(PLAYER_IDX, dx, dy, map, objects, Some(on_collision));
 }
 
 fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut FovMap) {
@@ -384,8 +419,8 @@ fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut 
       move_towards(npc_id, player_pos, map, objects);
     }
     else if objects[PLAYER_IDX].alive {
-      let npc = &objects[npc_id];
-      println!("The {} attacks the player!", npc.name);
+      let (npc, player) = mut_two(npc_id, PLAYER_IDX, objects);
+      npc.attack(player);
     }
   }
 }
@@ -479,6 +514,12 @@ fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object],
   }
 
   blit(con, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (0, 0), 1.0, 1.0);
+
+  if let Some(char_attributes) = objects[PLAYER_IDX].char_attributes {
+    root.print_ex(1, SCREEN_HEIGHT - 2, BackgroundFlag::None, TextAlignment::Left,
+                  format!("HP: {}/{}, ALIVE: {}", char_attributes.hp, char_attributes.max_hp,
+                          objects[PLAYER_IDX].alive));
+  }
 }
 
 fn main() {
@@ -558,7 +599,7 @@ fn main() {
       else {
         root.set_default_foreground(colors::WHITE);
       }
-      root.print_ex(1, SCREEN_HEIGHT - 2, BackgroundFlag::None, TextAlignment::Left,
+      root.print_ex(1, SCREEN_HEIGHT - 4, BackgroundFlag::None, TextAlignment::Left,
                     format!("{} Seed Label: {}", seed_type_label, thread_ctx.rand_seed));
     }
 
