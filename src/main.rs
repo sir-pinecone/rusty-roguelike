@@ -38,16 +38,16 @@ const DEBUG_MODE: bool = true; // @incomplete make this a build flag
 
 struct ThreadContext {
   rand: StdRng,
-  provided_seed: i32,
+  custom_seed: bool,
   rand_seed: i32
 }
 
-fn _new_thread_context_from_seed(seed_val: i32, rng_seed: &[usize]) -> ThreadContext {
+fn _new_thread_context_from_seed(seed_val: i32, rng_seed: &[usize], custom_seed: bool) -> ThreadContext {
     let rng: StdRng = SeedableRng::from_seed(rng_seed);
     println!("[RNG init] Provided seed: {:?}, RNG Seed: {:?}", seed_val, rng_seed[0]);
     ThreadContext {
       rand: rng,
-      provided_seed: seed_val,
+      custom_seed: custom_seed,
       rand_seed: rng_seed[0] as i32
     }
 }
@@ -56,12 +56,12 @@ impl ThreadContext {
   pub fn new() -> Self {
     let seed = 69; // default seed value
     let rng_seed: &[_] = &[&seed as *const i32 as usize];
-    _new_thread_context_from_seed(seed, rng_seed)
+    _new_thread_context_from_seed(seed, rng_seed, false)
   }
 
   pub fn from_seed(seed: i32) -> Self {
     let rng_seed: &[_] = &[seed as usize];
-    _new_thread_context_from_seed(seed, rng_seed)
+    _new_thread_context_from_seed(seed, rng_seed, true)
   }
 }
 
@@ -488,12 +488,16 @@ fn main() {
     render_all(&mut root, &mut con, &objects, &map, &mut fov_map, recompute_fov);
 
     if DEBUG_MODE {
-      // Render seed
-      root.print_ex(1, SCREEN_HEIGHT - 5, BackgroundFlag::None, TextAlignment::Left,
-                    format!("Provided seed: {}", thread_ctx.provided_seed));
-
-      root.print_ex(1, SCREEN_HEIGHT - 4, BackgroundFlag::None, TextAlignment::Left,
-                    format!("Active seed: {}", thread_ctx.rand_seed));
+      let mut seed_type_label = "Active";
+      if thread_ctx.custom_seed {
+        root.set_default_foreground(colors::RED);
+        seed_type_label = "Custom";
+      }
+      else {
+        root.set_default_foreground(colors::WHITE);
+      }
+      root.print_ex(1, SCREEN_HEIGHT - 2, BackgroundFlag::None, TextAlignment::Left,
+                    format!("{} Seed Label: {}", seed_type_label, thread_ctx.rand_seed));
     }
 
     root.flush();
