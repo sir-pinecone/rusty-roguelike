@@ -36,9 +36,6 @@ const COLOR_LIGHT_GROUND: Color = Color { r: 180, g: 160, b: 108 };
 
 const DEFAULT_DEATH_CHAR: char = 'x';
 
-const DEBUG_MODE:        bool = true; // @incomplete make this a build flag
-const DEBUG_DISABLE_FOG: bool = false;
-
 /* Mutably borrow two *separate elements from the given slice.
  * Panics when the indexes are equal or out of bounds.
  */
@@ -52,6 +49,13 @@ fn mut_two<T>(first_index: usize, second_index: usize, items: &mut [T]) -> (&mut
     (&mut second_splice[0], &mut first_splice[second_index])
   }
 }
+
+struct GameState {
+  debug_mode: bool,
+  debug_disable_fog: bool,
+  game_running: bool
+}
+
 
 struct ThreadContext {
   rand: StdRng,
@@ -499,15 +503,15 @@ fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
 }
 
 // NOTE: We use the type &[Object] for objects because we want an immutable slice (a view)
-fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object],
-              map: &Map, fov_map: &mut FovMap, render_map: bool) {
+fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
+              objects: &[Object], map: &Map, fov_map: &mut FovMap, render_map: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
   if render_map {
     for y in 0..MAP_HEIGHT {
       for x in 0..MAP_WIDTH {
         let tile = &map[(y * MAP_WIDTH + x) as usize];
 
-        if tile.explored || DEBUG_DISABLE_FOG || tile.visible {
+        if tile.explored || game_state.debug_disable_fog || tile.visible {
           let is_wall = tile.blocks_sight;
           let color = match(tile.visible, is_wall) {
             // Outside the FOV:
@@ -524,7 +528,7 @@ fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object],
   }
 
   for object in objects {
-    if DEBUG_DISABLE_FOG || fov_map.is_in_fov(object.x, object.y) {
+    if game_state.debug_disable_fog || fov_map.is_in_fov(object.x, object.y) {
       object.draw(con);
     }
   }
@@ -549,18 +553,34 @@ fn main() {
 
   let mut con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
 
+  let mut game_state = GameState {
+    debug_mode: false,
+    debug_disable_fog: false,
+    game_running: true
+  };
+
   // Setup the number generator
   let mut thread_ctx: ThreadContext;
 
   let mut provided_rng_seed: Option<i32> = None;
   let mut found_seed_flag = false;
+  let mut found_debug_flag = false;
 
   for argument in env::args() {
     if found_seed_flag {
       provided_rng_seed = Some(argument.trim().parse().expect("seed flag must be a number"));
+      found_seed_flag = false;
+    } else if found_debug_flag {
+      game_state.debug_mode = (argument.trim() != "false");
+      found_debug_flag = false;
     }
-    if argument == "--seed" {
-      found_seed_flag = true;
+    else {
+      match argument.as_ref() {
+        "--seed"        => found_seed_flag = true,
+        "--debug"       => found_debug_flag = true,
+        "--disable-fog" => game_state.debug_disable_fog = true,
+        _ => {}
+      };
     }
   }
 
@@ -594,9 +614,8 @@ fn main() {
   }
 
   let mut previous_player_pos = (-1, -1);
-  let mut game_running = true;
 
-  while game_running {
+  while game_state.game_running {
     let recompute_fov = previous_player_pos != (objects[PLAYER_IDX].x, objects[PLAYER_IDX].y);
     if recompute_fov {
       let player_ref = &objects[PLAYER_IDX];
@@ -604,9 +623,10 @@ fn main() {
     }
 
     update_map(&mut map, &mut fov_map, recompute_fov);
-    render_all(&mut root, &mut con, &objects, &map, &mut fov_map, recompute_fov);
+    render_all(&game_state, &mut root, &mut con, &objects, &map, &mut fov_map,
+               recompute_fov);
 
-    if DEBUG_MODE {
+    if game_state.debug_mode {
       let mut seed_type_label = "Active";
       if thread_ctx.custom_seed {
         root.set_default_foreground(colors::RED);
@@ -638,11 +658,11 @@ fn main() {
     let player_action = handle_input(&mut root, &map, &mut objects);
 
     if player_action == PlayerAction::Exit || root.window_closed() {
-      game_running = false;
+      game_state.game_running = false;
     }
 
     // Update monsters
-    if game_running && player_action == PlayerAction::TookTurn {
+    if game_state.game_running && player_action == PlayerAction::TookTurn {
       for id in 0..objects.len() {
         if objects[id].brain.is_some() && objects[id].alive {
           ai_take_turn(id, &mut objects, &map, &mut fov_map);
