@@ -32,10 +32,12 @@ const COLOR_DARK_GROUND: Color = Color { r: 50, g: 50, b: 150 };
 const COLOR_LIGHT_GROUND: Color = Color { r: 180, g: 160, b: 108 };
 
 const DEFAULT_DEATH_CHAR: char = 'x';
+const DEBUG_MODE: bool = true; // @incomplete make this a build flag
 
 
 struct ThreadContext {
   rand: StdRng,
+  provided_seed: i32,
   rand_seed: i32
 }
 
@@ -44,7 +46,8 @@ fn _new_thread_context_from_seed(seed_val: i32, rng_seed: &[usize]) -> ThreadCon
     println!("[RNG init] Provided seed: {:?}, RNG Seed: {:?}", seed_val, rng_seed[0]);
     ThreadContext {
       rand: rng,
-      rand_seed: seed_val
+      provided_seed: seed_val,
+      rand_seed: rng_seed[0] as i32
     }
 }
 
@@ -462,6 +465,15 @@ fn main() {
 
     update_map(&mut map, &mut fov_map, recompute_fov);
     render_all(&mut root, &mut con, &objects, &map, &mut fov_map, recompute_fov);
+
+    if DEBUG_MODE {
+      // Render seed
+      root.print_ex(1, SCREEN_HEIGHT - 5, BackgroundFlag::None, TextAlignment::Left,
+                    format!("Provided seed: {}", thread_ctx.provided_seed));
+
+      root.print_ex(1, SCREEN_HEIGHT - 4, BackgroundFlag::None, TextAlignment::Left,
+                    format!("Active seed: {}", thread_ctx.rand_seed));
+    }
 
     root.flush();
 
