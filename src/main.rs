@@ -137,6 +137,9 @@ impl Object {
     if damage > 0 {
       if let Some(char_attributes) = self.char_attributes.as_mut() {
         char_attributes.hp -= damage;
+        if char_attributes.hp <= 0 {
+          self.alive = false;
+        }
       }
     }
   }
