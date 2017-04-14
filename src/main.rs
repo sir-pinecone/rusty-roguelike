@@ -301,6 +301,8 @@ fn make_map(thread_ctx: &mut ThreadContext, objects: &mut Vec<Object>) -> Map {
   let mut map = vec![Tile::wall(); (MAP_WIDTH * MAP_HEIGHT) as usize];
   let mut rooms = vec![];
 
+  // @improvement Create a sparse tile map.
+
   for i in 0..MAX_ROOMS {
     let w = thread_ctx.rand.gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
     let h = thread_ctx.rand.gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
@@ -547,7 +549,8 @@ fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
 }
 
 fn render_bar(panel: &mut Offscreen, x: i32, y: i32, total_width: i32, name: &str,
-              value: i32, maximum: i32, bar_color: Color, back_color: Color) {
+              value: i32, maximum: i32, text_color: Color, bar_color: Color,
+              back_color: Color) {
   let bar_width = (value as f32 / maximum as f32 * total_width as f32) as i32;
 
   panel.set_default_background(back_color);
@@ -558,7 +561,7 @@ fn render_bar(panel: &mut Offscreen, x: i32, y: i32, total_width: i32, name: &st
     panel.rect(x, y, bar_width, 1, false, BackgroundFlag::Screen);
   }
 
-  panel.set_default_background(colors::WHITE);
+  panel.set_default_foreground(text_color);
   panel.print_ex(x + total_width / 2, y, BackgroundFlag::None, TextAlignment::Center,
                  &format!("{}: {}/{}", name, value, maximum));
 }
@@ -606,7 +609,7 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
 
   let hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.hp);
   let max_hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.max_hp);
-  render_bar(panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp, colors::LIGHT_RED, colors::DARKER_RED);
+  render_bar(panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp, colors::WHITE, colors::LIGHT_RED, colors::DARKER_RED);
 
   // Game messages
   let mut y = MSG_HEIGHT as i32;
@@ -704,6 +707,8 @@ fn main() {
       let player_ref = &objects[PLAYER_IDX];
       fov_map.compute_fov(player_ref.x, player_ref.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
     }
+
+    // @improvement create a smooth scrolling camera
 
     update_map(&mut map, &mut fov_map, recompute_fov);
     render_all(&game_state, &mut root, &mut con, &mut panel, &objects, &map, &mut fov_map,
