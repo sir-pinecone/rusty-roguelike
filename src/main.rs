@@ -490,13 +490,11 @@ fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut 
   }
 }
 
-fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object],
+fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut [Object],
                 game_state: &mut GameState) -> PlayerAction {
-  use tcod::input::Key;
   use tcod::input::KeyCode::*;
   use PlayerAction::*;
 
-  let key = root.wait_for_keypress(true);
   let is_player_alive = objects[PLAYER_IDX].alive;
   match (key, is_player_alive) {
     // Toggle fullscreen
@@ -569,7 +567,7 @@ fn render_bar(panel: &mut Offscreen, x: i32, y: i32, total_width: i32, name: &st
 // NOTE: We use the type &[Object] for objects because we want an immutable slice (a view)
 fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
               panel: &mut Offscreen, objects: &[Object], map: &Map, fov_map: &mut FovMap,
-              render_map: bool) {
+              mouse: &Mouse, render_map: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
   if render_map {
     for y in 0..MAP_HEIGHT {
@@ -592,9 +590,10 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
     }
   }
 
-  let mut to_draw: Vec<_> = objects.iter()
-                                    .filter(|o| game_state.debug_disable_fog || fov_map.is_in_fov(o.x, o.y))
-                                    .collect();
+  let mut to_draw: Vec<_> = objects
+    .iter()
+    .filter(|o| game_state.debug_disable_fog || fov_map.is_in_fov(o.x, o.y))
+    .collect();
 
   to_draw.sort_by(|o1, o2| { o1.blocks.cmp(&o2.blocks) });
   for obj in &to_draw {
@@ -699,6 +698,8 @@ fn main() {
     }
   }
 
+  let mut mouse = Default::default();
+  let mut keypress = Default::default();
   let mut previous_player_pos = (-1, -1);
 
   while game_state.game_running {
@@ -708,11 +709,41 @@ fn main() {
       fov_map.compute_fov(player_ref.x, player_ref.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
     }
 
-    // @improvement create a smooth scrolling camera
+    match input::check_for_event(input::MOUSE | input::KEY_PRESS) {
+      Some((_, Event::Mouse(m))) => mouse = m,
+      Some((_, Event::Key(k))) => keypress = k,
+      _ => keypress = Default::default(),
+    }
+
+    // @idea allow the player to do things after death?
+    // @idea copy the approach that Dwarf Fortress takes for world gen. Make a world and
+    //   then persist it across lives. Allow people to drop out and play as a new character
+    //   with the previous player being taken over by the game AI system.
+    //   I particularly like the idea of leaving the corpse and allowing the next character
+    //   to visit the body and take scraps if anything is still there.
+
+    previous_player_pos = objects[PLAYER_IDX].pos();
+    let player_action = handle_input(keypress, &mut root, &map, &mut objects, &mut game_state);
+
+    if player_action == PlayerAction::Exit || root.window_closed() {
+      game_state.game_running = false;
+      break;
+    }
+
+    // Update monsters
+    if game_state.game_running && player_action == PlayerAction::TookTurn {
+      for id in 0..objects.len() {
+        if objects[id].brain.is_some() && objects[id].alive {
+          ai_take_turn(id, &mut objects, &map, &mut fov_map, &mut game_state);
+        }
+      }
+    }
 
     update_map(&mut map, &mut fov_map, recompute_fov);
+
+    // @improvement create a smooth scrolling camera
     render_all(&game_state, &mut root, &mut con, &mut panel, &objects, &map, &mut fov_map,
-               recompute_fov);
+               &mouse, recompute_fov);
 
     if game_state.debug_mode {
       let mut seed_type_label = "Active";
@@ -733,30 +764,6 @@ fn main() {
     // Erase objects at their old locations before moving
     for object in &objects {
       object.clear(&mut con);
-    }
-
-    previous_player_pos = objects[PLAYER_IDX].pos();
-
-    // @idea allow the player to do things after death?
-    // @idea copy the approach that Dwarf Fortress takes for world gen. Make a world and
-    //   then persist it across lives. Allow people to drop out and play as a new character
-    //   with the previous player being taken over by the game AI system.
-    //   I particularly like the idea of leaving the corpse and allowing the next character
-    //   to visit the body and take scraps if anything is still there.
-
-    let player_action = handle_input(&mut root, &map, &mut objects, &mut game_state);
-
-    if player_action == PlayerAction::Exit || root.window_closed() {
-      game_state.game_running = false;
-    }
-
-    // Update monsters
-    if game_state.game_running && player_action == PlayerAction::TookTurn {
-      for id in 0..objects.len() {
-        if objects[id].brain.is_some() && objects[id].alive {
-          ai_take_turn(id, &mut objects, &map, &mut fov_map, &mut game_state);
-        }
-      }
     }
   }
 }
