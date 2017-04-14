@@ -11,11 +11,15 @@ use tcod::map::{Map as FovMap, FovAlgorithm};
 mod components;
 
 const SCREEN_WIDTH: i32 = 80;
-const SCREEN_HEIGHT: i32 = 50;
+const SCREEN_HEIGHT: i32 = 43;
 const LIMIT_FPS: i32 = 30;
 
 const MAP_WIDTH: i32 = SCREEN_WIDTH;
 const MAP_HEIGHT: i32 = SCREEN_HEIGHT - 5;
+
+const BAR_WIDTH: i32 = 20;
+const PANEL_HEIGHT: i32 = 7;
+const PANEL_Y: i32 = SCREEN_HEIGHT - PANEL_HEIGHT;
 
 const ROOM_MAX_SIZE: i32 = 12;
 const ROOM_MIN_SIZE: i32 = 5;
@@ -390,7 +394,7 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
         let name = npc_name("Wizard", objects);
         let mut wizard = Object::new(x, y, '@', DEFAULT_DEATH_CHAR, &name, colors::RED, true, true);
         wizard.char_attributes = Some(components::CharacterAttributes {
-          max_hp: 16, hp: 12, defense: 6, power: 4
+          max_hp: 16, hp: 12, defense: 3, power: 4
         });
         wizard.brain = Some(components::Ai);
         wizard
@@ -525,9 +529,27 @@ fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
   }
 }
 
+fn render_bar(panel: &mut Offscreen, x: i32, y: i32, total_width: i32, name: &str,
+              value: i32, maximum: i32, bar_color: Color, back_color: Color) {
+  let bar_width = (value as f32 / maximum as f32 * total_width as f32) as i32;
+
+  panel.set_default_background(back_color);
+  panel.rect(x, y, total_width, 1, false, BackgroundFlag::Screen);
+
+  panel.set_default_background(bar_color);
+  if bar_width > 0 {
+    panel.rect(x, y, bar_width, 1, false, BackgroundFlag::Screen);
+  }
+
+  panel.set_default_background(colors::WHITE);
+  panel.print_ex(x + total_width / 2, y, BackgroundFlag::None, TextAlignment::Center,
+                 &format!("{}: {}/{}", name, value, maximum));
+}
+
 // NOTE: We use the type &[Object] for objects because we want an immutable slice (a view)
 fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
-              objects: &[Object], map: &Map, fov_map: &mut FovMap, render_map: bool) {
+              panel: &mut Offscreen, objects: &[Object], map: &Map, fov_map: &mut FovMap,
+              render_map: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
   if render_map {
     for y in 0..MAP_HEIGHT {
@@ -561,11 +583,15 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
 
   blit(con, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (0, 0), 1.0, 1.0);
 
-  if let Some(char_attributes) = objects[PLAYER_IDX].char_attributes {
-    root.print_ex(1, SCREEN_HEIGHT - 2, BackgroundFlag::None, TextAlignment::Left,
-                  format!("HP: {}/{}, ALIVE: {}", char_attributes.hp, char_attributes.max_hp,
-                          objects[PLAYER_IDX].alive));
-  }
+  // Show stats
+  panel.set_default_background(colors::BLACK);
+  panel.clear();
+
+  let hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.hp);
+  let max_hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.max_hp);
+  render_bar(panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp, colors::LIGHT_RED, colors::DARKER_RED);
+
+  blit(panel, (0, 0), (SCREEN_WIDTH, PANEL_HEIGHT), root, (0, PANEL_Y), 1.0, 1.0);
 }
 
 fn main() {
@@ -578,6 +604,7 @@ fn main() {
   tcod::system::set_fps(LIMIT_FPS);
 
   let mut con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
+  let mut panel = Offscreen::new(SCREEN_WIDTH, PANEL_HEIGHT);
 
   let mut game_state = GameState {
     debug_mode: false,
@@ -622,7 +649,7 @@ fn main() {
   let mut player = Object::new(0, 0, '@', 'X', "Player Bob", colors::WHITE, true, true);
   player.alive = true;
   player.char_attributes = Some(components::CharacterAttributes{
-    max_hp: 30, hp: 30, defense: 2, power: 7
+    max_hp: 30, hp: 30, defense: 3, power: 7
   });
 
   let mut objects = vec![player];
@@ -649,8 +676,7 @@ fn main() {
     }
 
     update_map(&mut map, &mut fov_map, recompute_fov);
-    render_all(&game_state, &mut root, &mut con, &objects, &map, &mut fov_map,
-               recompute_fov);
+    render_all(&game_state, &mut root, &mut con, &mut panel, &objects, &map, &mut fov_map, recompute_fov);
 
     if game_state.debug_mode {
       let mut seed_type_label = "Active";
@@ -661,7 +687,7 @@ fn main() {
       else {
         root.set_default_foreground(colors::WHITE);
       }
-      root.print_ex(1, SCREEN_HEIGHT - 4, BackgroundFlag::None, TextAlignment::Left,
+      root.print_ex(1, SCREEN_HEIGHT - 2, BackgroundFlag::None, TextAlignment::Left,
                     format!("{} Seed: {}", seed_type_label, thread_ctx.rand_seed));
     }
 
