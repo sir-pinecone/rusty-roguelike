@@ -7,6 +7,7 @@ use rand::{Rng, SeedableRng, StdRng};
 use tcod::console::*;
 use tcod::colors::{self, Color};
 use tcod::map::{Map as FovMap, FovAlgorithm};
+use tcod::input::{self, Event, Key, Mouse};
 
 mod components;
 
@@ -474,6 +475,16 @@ fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object],
   }
 }
 
+fn obj_names_at_location(x: i32, y: i32, objects: &[Object], fov_map: &FovMap) -> String {
+  let names = objects
+    .iter()
+    .filter(|obj| { obj.pos() == (x, y) && fov_map.is_in_fov(obj.x, obj.y) })
+    .map(|obj| obj.name.clone())
+    .collect::<Vec<_>>();
+
+  return names.join(", ");
+}
+
 fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut FovMap,
                 game_state: &mut GameState) {
   let (npc_x, npc_y) = objects[npc_id].pos();
@@ -609,6 +620,11 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
   let hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.hp);
   let max_hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.max_hp);
   render_bar(panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp, colors::WHITE, colors::LIGHT_RED, colors::DARKER_RED);
+
+  // Objects under mouse
+  panel.set_default_foreground(colors::LIGHT_GREY);
+  panel.print_ex(1, 0, BackgroundFlag::None, TextAlignment::Left,
+                 obj_names_at_location(mouse.cx as i32, mouse.cy as i32, objects, fov_map));
 
   // Game messages
   let mut y = MSG_HEIGHT as i32;
