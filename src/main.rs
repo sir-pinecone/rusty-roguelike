@@ -21,6 +21,10 @@ const BAR_WIDTH: i32 = 20;
 const PANEL_HEIGHT: i32 = 7;
 const PANEL_Y: i32 = SCREEN_HEIGHT - PANEL_HEIGHT;
 
+const MSG_X: i32 = BAR_WIDTH + 2;
+const MSG_WIDTH: i32 = SCREEN_WIDTH - BAR_WIDTH - 2;
+const MSG_HEIGHT: usize = PANEL_HEIGHT as usize - 1;
+
 const ROOM_MAX_SIZE: i32 = 12;
 const ROOM_MIN_SIZE: i32 = 5;
 // @feature min_rooms
@@ -54,9 +58,12 @@ fn mut_two<T>(first_index: usize, second_index: usize, items: &mut [T]) -> (&mut
   }
 }
 
+type Messages = Vec<(String, Color)>;
+
 struct GameState {
   debug_mode: bool,
   debug_disable_fog: bool,
+  messages: Messages,
   game_running: bool
 }
 
@@ -143,7 +150,7 @@ impl Object {
   }
 
   // @incomplete switch to f32 for damage/health, etc
-  pub fn take_damage(&mut self, damage: i32) {
+  pub fn take_damage(&mut self, damage: i32, game_state: &mut GameState) {
     if self.alive && damage > 0 {
       if let Some(char_attributes) = self.char_attributes.as_mut() {
         char_attributes.hp -= cmp::min(damage, char_attributes.hp);
@@ -153,20 +160,20 @@ impl Object {
       }
       if let Some(char_attributes) = self.char_attributes {
         if !self.alive {
-          on_object_death(self);
+          on_object_death(self, game_state);
         }
       }
     }
   }
 
-  pub fn attack(&mut self, target: &mut Object) {
+  pub fn attack(&mut self, target: &mut Object, game_state: &mut GameState) {
     let damage = self.char_attributes.map_or(0, |x| x.power) -
                  target.char_attributes.map_or(0, |x| x.defense);
     if damage > 0 {
-      println!("{} attacks {} and deals {} damage!", self.name, target.name, damage);
-      target.take_damage(damage);
+      message(&mut game_state.messages, format!("{} attacks {} and deals {} damage!", self.name, target.name, damage), colors::WHITE);
+      target.take_damage(damage, game_state);
     } else {
-      println!("{} attacks {}, but it has no effect!", self.name, target.name);
+      message(&mut game_state.messages, format!("{} attacks {}, but it has no effect!", self.name, target.name), colors::WHITE);
     }
   }
 
@@ -259,6 +266,13 @@ struct TileCollisionInfo {
   obj_collision: bool,
   tile_collision: bool,
   collision_id: Option<usize>
+}
+
+fn message<T: Into<String>>(messages: &mut Messages, message: T, color: Color) {
+  if messages.len() == MSG_HEIGHT {
+    messages.remove(0);
+  }
+  messages.push((message.into(), color));
 }
 
 
@@ -406,17 +420,17 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
   }
 }
 
-fn on_object_death(obj: &mut Object) {
+fn on_object_death(obj: &mut Object, game_state: &mut GameState) {
   match obj.brain {
     Some(brain) => {
       // AI
-      println!("NPC {} died!", obj.name);
+      message(&mut game_state.messages, format!("{} died!", obj.name), colors::RED);
       obj.blocks = false;
       obj.brain = None
     },
     // player
     None => {
-      println!("Player {} died!", obj.name);
+      message(&mut game_state.messages, format!("Player {} died!", obj.name), colors::RED);
       obj.blocks = false;
     }
   }
@@ -444,20 +458,22 @@ fn move_towards(id: usize, (target_x, target_y): (i32, i32), map:&Map, objects: 
   attempt_move(id, dx, dy, map, objects);
 }
 
-fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
+fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object],
+                         game_state: &mut GameState) {
   let coll_info = attempt_move(PLAYER_IDX, dx, dy, map, objects);
   if coll_info.obj_collision && coll_info.collision_id.is_some() {
     let (player, target) = mut_two(PLAYER_IDX, coll_info.collision_id.unwrap(), objects);
     if target.alive {
-      player.attack(target);
+      player.attack(target, game_state);
     }
     else {
-      println!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name);
+      message(&mut game_state.messages, format!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name), colors::BLUE);
     }
   }
 }
 
-fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut FovMap) {
+fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut FovMap,
+                game_state: &mut GameState) {
   let (npc_x, npc_y) = objects[npc_id].pos();
 
   if fov_map.is_in_fov(npc_x, npc_y) {
@@ -467,12 +483,13 @@ fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut 
     }
     else if objects[PLAYER_IDX].alive {
       let (npc, player) = mut_two(npc_id, PLAYER_IDX, objects);
-      npc.attack(player);
+      npc.attack(player, game_state);
     }
   }
 }
 
-fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> PlayerAction {
+fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object],
+                game_state: &mut GameState) -> PlayerAction {
   use tcod::input::Key;
   use tcod::input::KeyCode::*;
   use PlayerAction::*;
@@ -492,19 +509,19 @@ fn handle_input(root: &mut Root, map : &Map, objects: &mut [Object]) -> PlayerAc
 
     // Movement
     (Key { code: Up, .. }, true) => {
-      player_move_or_attack(0, -1, map, objects);
+      player_move_or_attack(0, -1, map, objects, game_state);
       TookTurn
     }
     (Key { code: Down, .. }, true) => {
-      player_move_or_attack(0, 1, map, objects);
+      player_move_or_attack(0, 1, map, objects, game_state);
       TookTurn
     }
     (Key { code: Left, .. }, true) => {
-      player_move_or_attack(-1, 0, map, objects);
+      player_move_or_attack(-1, 0, map, objects, game_state);
       TookTurn
     }
     (Key { code: Right, .. }, true) => {
-      player_move_or_attack(1, 0, map, objects);
+      player_move_or_attack(1, 0, map, objects, game_state);
       TookTurn
     }
 
@@ -591,6 +608,18 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
   let max_hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.max_hp);
   render_bar(panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp, colors::LIGHT_RED, colors::DARKER_RED);
 
+  // Game messages
+  let mut y = MSG_HEIGHT as i32;
+  for &(ref msg, color) in game_state.messages.iter().rev() {
+    let msg_height = panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+    y -= msg_height;
+    if y < 0 {
+      break;
+    }
+    panel.set_default_foreground(color);
+    panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+  }
+
   blit(panel, (0, 0), (SCREEN_WIDTH, PANEL_HEIGHT), root, (0, PANEL_Y), 1.0, 1.0);
 }
 
@@ -609,7 +638,8 @@ fn main() {
   let mut game_state = GameState {
     debug_mode: false,
     debug_disable_fog: false,
-    game_running: true
+    messages: vec![],
+    game_running: true,
   };
 
   // Setup the number generator
@@ -676,7 +706,8 @@ fn main() {
     }
 
     update_map(&mut map, &mut fov_map, recompute_fov);
-    render_all(&game_state, &mut root, &mut con, &mut panel, &objects, &map, &mut fov_map, recompute_fov);
+    render_all(&game_state, &mut root, &mut con, &mut panel, &objects, &map, &mut fov_map,
+               recompute_fov);
 
     if game_state.debug_mode {
       let mut seed_type_label = "Active";
@@ -708,7 +739,7 @@ fn main() {
     //   I particularly like the idea of leaving the corpse and allowing the next character
     //   to visit the body and take scraps if anything is still there.
 
-    let player_action = handle_input(&mut root, &map, &mut objects);
+    let player_action = handle_input(&mut root, &map, &mut objects, &mut game_state);
 
     if player_action == PlayerAction::Exit || root.window_closed() {
       game_state.game_running = false;
@@ -718,7 +749,7 @@ fn main() {
     if game_state.game_running && player_action == PlayerAction::TookTurn {
       for id in 0..objects.len() {
         if objects[id].brain.is_some() && objects[id].alive {
-          ai_take_turn(id, &mut objects, &map, &mut fov_map);
+          ai_take_turn(id, &mut objects, &map, &mut fov_map, &mut game_state);
         }
       }
     }
