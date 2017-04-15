@@ -475,14 +475,14 @@ fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object],
   }
 }
 
-fn obj_names_at_location(x: i32, y: i32, objects: &[Object], fov_map: &FovMap) -> String {
-  let names = objects
-    .iter()
-    .filter(|obj| { obj.pos() == (x, y) && fov_map.is_in_fov(obj.x, obj.y) })
-    .map(|obj| obj.name.clone())
-    .collect::<Vec<_>>();
-
-  return names.join(", ");
+fn visible_objects_at_pos<'a, 'b>(x: i32, y: i32, objects: &'a [Object], fov_map: &'b FovMap) -> Vec<&'a Object> {
+  // @hack we know the player is at index 0 in objects so we can skip the first value for now.
+  // Remove this once we have IDs or start passing other object lists to this fn
+  let mut i = objects.iter();
+  i.next();
+  let ret = i.filter(|obj| { obj.pos() == (x, y) && fov_map.is_in_fov(obj.x, obj.y) })
+             .collect::<Vec<_>>();
+  return ret;
 }
 
 fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut FovMap,
@@ -613,18 +613,32 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
 
   blit(con, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (0, 0), 1.0, 1.0);
 
+  // Render the info panel
+
   // Show stats
   panel.set_default_background(colors::BLACK);
   panel.clear();
 
   let hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.hp);
   let max_hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.max_hp);
-  render_bar(panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp, colors::WHITE, colors::LIGHT_RED, colors::DARKER_RED);
+  render_bar(panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp,
+             colors::WHITE, colors::LIGHT_RED, colors::DARKER_RED);
 
-  // Objects under mouse
+  // Objects under player or mouse
+  let mut visible_objects = visible_objects_at_pos(mouse.cx as i32, mouse.cy as i32,
+                                                   objects, fov_map);
+  if visible_objects.is_empty() {
+    visible_objects = visible_objects_at_pos(objects[PLAYER_IDX].x, objects[PLAYER_IDX].y,
+                                             objects, fov_map);
+  }
+  let obj_names = visible_objects
+                  .iter()
+                  .map((|obj| obj.name.clone()))
+                  .collect::<Vec<_>>()
+                  .join(", ");
+
   panel.set_default_foreground(colors::LIGHT_GREY);
-  panel.print_ex(1, 0, BackgroundFlag::None, TextAlignment::Left,
-                 obj_names_at_location(mouse.cx as i32, mouse.cy as i32, objects, fov_map));
+  panel.print_ex(1, 0, BackgroundFlag::None, TextAlignment::Left, obj_names);
 
   // Game messages
   let mut y = MSG_HEIGHT as i32;
@@ -640,6 +654,7 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
 
   blit(panel, (0, 0), (SCREEN_WIDTH, PANEL_HEIGHT), root, (0, PANEL_Y), 1.0, 1.0);
 }
+
 
 fn main() {
   let mut root = Root::initializer()
