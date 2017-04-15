@@ -460,6 +460,7 @@ fn on_object_death(obj: &mut Object, game_state: &mut GameState) {
     Some(brain) => {
       // AI
       message(game_state, format!("{} died!", obj.name), colors::RED);
+      obj.name = format!("{} [corpse]", obj.name);
       obj.blocks = false;
       obj.brain = None;
     },
