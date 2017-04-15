@@ -8,3 +8,9 @@ pub struct CharacterAttributes {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ai;
+
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Item {
+  Heal
+}

@@ -31,6 +31,7 @@ const ROOM_MIN_SIZE: i32 = 5;
 // @feature min_rooms
 const MAX_ROOMS: i32 = 10;
 const MAX_ROOM_MONSTERS: i32 = 4;
+const MAX_ROOM_ITEMS: i32 = 2;
 
 const PLAYER_IDX: usize = 0; // Always the first object
 
@@ -65,7 +66,8 @@ struct GameState {
   debug_mode: bool,
   debug_disable_fog: bool,
   messages: Messages,
-  game_running: bool
+  game_running: bool,
+  inventory: Vec<Object>
 }
 
 
@@ -114,6 +116,7 @@ struct Object {
   // components
   char_attributes: Option<components::CharacterAttributes>,
   brain: Option<components::Ai>,
+  item: Option<components::Item>,
 }
 
 impl Object {
@@ -131,7 +134,8 @@ impl Object {
       show_when_dead: show_dead,
 
       char_attributes: None,
-      brain: None
+      brain: None,
+      item: None
     }
   }
 
@@ -171,10 +175,10 @@ impl Object {
     let damage = self.char_attributes.map_or(0, |x| x.power) -
                  target.char_attributes.map_or(0, |x| x.defense);
     if damage > 0 {
-      message(&mut game_state.messages, format!("{} attacks {} and deals {} damage!", self.name, target.name, damage), colors::WHITE);
+      message(game_state, format!("{} attacks {} and deals {} damage!", self.name, target.name, damage), colors::WHITE);
       target.take_damage(damage, game_state);
     } else {
-      message(&mut game_state.messages, format!("{} attacks {}, but it has no effect!", self.name, target.name), colors::WHITE);
+      message(game_state, format!("{} attacks {}, but it has no effect!", self.name, target.name), colors::WHITE);
     }
   }
 
@@ -269,11 +273,11 @@ struct TileCollisionInfo {
   collision_id: Option<usize>
 }
 
-fn message<T: Into<String>>(messages: &mut Messages, message: T, color: Color) {
-  if messages.len() == MSG_HEIGHT {
-    messages.remove(0);
+fn message<T: Into<String>>(game_state: &mut GameState, message: T, color: Color) {
+  if game_state.messages.len() == MSG_HEIGHT {
+    game_state.messages.remove(0);
   }
-  messages.push((message.into(), color));
+  game_state.messages.push((message.into(), color));
 }
 
 
@@ -371,6 +375,19 @@ fn check_tile_for_collision(x: i32, y: i32, map: &Map, objects: &[Object]) -> Ti
   return coll_info;
 }
 
+fn pick_up_item(object_id: usize, objects: &mut Vec<Object>, game_state: &mut GameState) {
+  if game_state.inventory.len() >= 26 {
+    message(game_state,
+            format!("You can't pick up the {}. You're inventory is full!", objects[object_id].name),
+            colors::RED);
+  }
+  else {
+    let item = objects.swap_remove(object_id);
+    message(game_state, format!("You picked up a {}!", item.name), colors::GREEN);
+    game_state.inventory.push(item);
+  }
+}
+
 fn npc_name(label: &str, objects: &[Object]) -> String {
   let s = format!("{}_{:}", label, objects.len() + 1);
   return s;
@@ -421,19 +438,34 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
       objects.push(monster);
     }
   }
+
+  let num_items = thread_ctx.rand.gen_range(0, MAX_ROOM_ITEMS + 1);
+  for _ in 0..num_items {
+    // @incomplete if we can't place here then try again N times
+    let x = thread_ctx.rand.gen_range(room.x1 + 1, room.x2);
+    let y = thread_ctx.rand.gen_range(room.y1 + 1, room.y2);
+
+    let coll_info = check_tile_for_collision(x, y, map, objects);
+    if !coll_info.collision {
+      let mut obj = Object::new(x, y, '!', ' ', "Healing Potion", colors::VIOLET, false, false);
+      obj.alive = true;
+      obj.item = Some(components::Item::Heal);
+      objects.push(obj);
+    }
+  }
 }
 
 fn on_object_death(obj: &mut Object, game_state: &mut GameState) {
   match obj.brain {
     Some(brain) => {
       // AI
-      message(&mut game_state.messages, format!("{} died!", obj.name), colors::RED);
+      message(game_state, format!("{} died!", obj.name), colors::RED);
       obj.blocks = false;
-      obj.brain = None
+      obj.brain = None;
     },
     // player
     None => {
-      message(&mut game_state.messages, format!("Player {} died!", obj.name), colors::RED);
+      message(game_state, format!("{} died!", obj.name), colors::RED);
       obj.blocks = false;
     }
   }
@@ -470,7 +502,7 @@ fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object],
       player.attack(target, game_state);
     }
     else {
-      message(&mut game_state.messages, format!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name), colors::BLUE);
+      message(game_state, format!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name), colors::BLUE);
     }
   }
 }
@@ -501,7 +533,7 @@ fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut 
   }
 }
 
-fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut [Object],
+fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut Vec<Object>,
                 game_state: &mut GameState) -> PlayerAction {
   use tcod::input::KeyCode::*;
   use PlayerAction::*;
@@ -534,6 +566,17 @@ fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut [Object],
     (Key { code: Right, .. }, true) => {
       player_move_or_attack(1, 0, map, objects, game_state);
       TookTurn
+    }
+
+    // Everything else
+    (Key { printable: 'g', .. }, true) => {
+      let item_id = objects.iter().position(|obj| {
+        obj.item.is_some() && obj.pos() == objects[PLAYER_IDX].pos()
+      });
+      if let Some(item_id) = item_id {
+        pick_up_item(item_id, objects, game_state);
+      }
+      DidntTakeTurn
     }
 
     _ => DidntTakeTurn,
@@ -673,6 +716,7 @@ fn main() {
     debug_disable_fog: false,
     messages: vec![],
     game_running: true,
+    inventory: vec![],
   };
 
   // Setup the number generator
@@ -716,7 +760,6 @@ fn main() {
   });
 
   let mut objects = vec![player];
-
   let mut map = make_map(&mut thread_ctx, &mut objects);
 
   // Init fov
