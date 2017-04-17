@@ -3,6 +3,7 @@ extern crate rand;
 
 use std::env;
 use std::cmp;
+use std::ascii::AsciiExt;
 use rand::{Rng, SeedableRng, StdRng};
 use tcod::console::*;
 use tcod::colors::{self, Color};
@@ -21,6 +22,7 @@ const MAP_HEIGHT: i32 = SCREEN_HEIGHT - 5;
 const BAR_WIDTH: i32 = 20;
 const PANEL_HEIGHT: i32 = 7;
 const PANEL_Y: i32 = SCREEN_HEIGHT - PANEL_HEIGHT;
+const INVENTORY_WIDTH: i32 = 50;
 
 const MSG_X: i32 = BAR_WIDTH + 2;
 const MSG_WIDTH: i32 = SCREEN_WIDTH - BAR_WIDTH - 2;
@@ -570,6 +572,14 @@ fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut Vec<Object>
     }
 
     // Everything else
+
+    // Open inventory
+    (Key { printable: 'i', .. }, true) => {
+      render_inventory_menu(game_state, root);
+      TookTurn
+    }
+
+    // Pick up item
     (Key { printable: 'g', .. }, true) => {
       let item_id = objects.iter().position(|obj| {
         obj.item.is_some() && obj.pos() == objects[PLAYER_IDX].pos()
@@ -598,6 +608,75 @@ fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
         }
       }
     }
+  }
+}
+
+fn render_menu<T: AsRef<str>>(header: &str, options: &[T], width: i32,
+                              root: &mut Root, empty_message: &str) -> Option<usize> {
+  let num_opts: i32 = options.len() as i32;
+  let opts_padding = if num_opts == 0 {
+    2
+  } else {
+    num_opts * 2
+  };
+
+  assert!(num_opts <= 26, "Cannot have a menu with more than 26 options");
+
+  let header_height = root.get_height_rect(0, 0, width, SCREEN_HEIGHT, header);
+  let height = opts_padding + header_height;
+  let mut window = Offscreen::new(width, height);
+
+  window.set_default_background(colors::GREY);
+  window.rect(0, 0, width, header_height, false, BackgroundFlag::Screen);
+
+  window.set_default_foreground(colors::WHITE);
+  window.print_rect_ex(0, 0, width, height, BackgroundFlag::None, TextAlignment::Left, header);
+
+  if num_opts > 0 {
+    for (idx, option_text) in options.iter().enumerate() {
+      let menu_letter = (b'a' + idx as u8) as char;
+      let text = format!("({}) {}", menu_letter, option_text.as_ref());
+      window.print_ex(0, header_height + (idx as i32) + 1, BackgroundFlag::None,
+                      TextAlignment::Left, text);
+    }
+  }
+  else {
+    window.print_ex(0, header_height + 1 as i32, BackgroundFlag::None, TextAlignment::Left,
+                    empty_message);
+  }
+
+  let x = SCREEN_WIDTH / 2 - width / 2;
+  let y = SCREEN_HEIGHT / 2 - height / 2;
+  tcod::console::blit(&mut window, (0, 0), (width, height), root, (x, y), 1.0, 0.7);
+  root.flush();
+  let key = root.wait_for_keypress(true);
+
+  if key.printable.is_alphabetic() {
+    let idx = key.printable.to_ascii_lowercase() as usize - 'a' as usize;
+    if idx < num_opts as usize {
+      Some(idx)
+    } else {
+      None
+    }
+  } else {
+    None
+  }
+}
+
+fn render_inventory_menu(game_state: &GameState, root: &mut Root) -> Option<usize> {
+  let options = if game_state.inventory.is_empty() {
+    vec![]
+  } else {
+    game_state.inventory.iter().map(|item| { item.name.clone() }).collect()
+  };
+
+  let header = "Use an item by pressing the key next to it.\n";
+  let inventory_idx = render_menu(header, &options, INVENTORY_WIDTH, root, "Inventory is empty!");
+
+  if game_state.inventory.len() > 0 {
+    return inventory_idx;
+  } else {
+    return None;
   }
 }
 
