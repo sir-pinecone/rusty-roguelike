@@ -48,6 +48,8 @@ const COLOR_LIGHT_GROUND: Color = Color { r: 180, g: 160, b: 108 };
 
 const DEFAULT_DEATH_CHAR: char = 'x';
 
+const HEAL_AMOUNT: i32 = 8;
+
 /* Mutably borrow two *separate elements from the given slice.
  * Panics when the indexes are equal or out of bounds.
  */
@@ -159,7 +161,7 @@ impl Object {
   // @incomplete switch to f32 for damage/health, etc
   pub fn take_damage(&mut self, damage: i32, game_state: &mut GameState) {
     if self.alive && damage > 0 {
-      if let Some(char_attributes) = self.char_attributes.as_mut() {
+      if let Some(ref mut char_attributes) = self.char_attributes {
         char_attributes.hp -= cmp::min(damage, char_attributes.hp);
         if char_attributes.hp <= 0 {
           self.alive = false;
@@ -169,6 +171,15 @@ impl Object {
         if !self.alive {
           on_object_death(self, game_state);
         }
+      }
+    }
+  }
+
+  // @incomplete switch to f32 for damage/health, etc
+  pub fn heal(&mut self, amount: i32) {
+    if self.alive && amount > 0 {
+      if let Some(ref mut char_attributes) = self.char_attributes {
+        char_attributes.hp = cmp::min(char_attributes.max_hp, char_attributes.hp + amount);
       }
     }
   }
@@ -274,6 +285,7 @@ struct TileCollisionInfo {
   tile_collision: bool,
   collision_id: Option<usize>
 }
+
 
 fn message<T: Into<String>>(game_state: &mut GameState, message: T, color: Color) {
   if game_state.messages.len() == MSG_HEIGHT {
@@ -388,6 +400,44 @@ fn pick_up_item(object_id: usize, objects: &mut Vec<Object>, game_state: &mut Ga
     message(game_state, format!("You picked up a {}!", item.name), colors::GREEN);
     game_state.inventory.push(item);
   }
+}
+
+enum ItemUseResult {
+  UsedUp,
+  Cancelled
+}
+
+fn use_item(inventory_id: usize, game_state: &mut GameState, objects: &mut Vec<Object>) {
+  use components::Item::*;
+  if let Some(item) = game_state.inventory[inventory_id].item {
+    let on_use = match item {
+      Heal => cast_heal
+    };
+    match on_use(game_state, objects) {
+      ItemUseResult::UsedUp => {
+        game_state.inventory.remove(inventory_id);
+      }
+      ItemUseResult::Cancelled => {
+        message(game_state, "Cancelled", colors::WHITE);
+      }
+    }
+  } else {
+    let item_name = game_state.inventory[inventory_id].name.clone();
+    message(game_state, format!("The {} cannot be used.", item_name), colors::WHITE);
+  }
+}
+
+fn cast_heal(game_state: &mut GameState, objects: &mut [Object]) -> ItemUseResult {
+  if let Some(char_attributes) = objects[PLAYER_IDX].char_attributes {
+    if char_attributes.hp == char_attributes.max_hp {
+      message(game_state, "You're already at full health.", colors::RED);
+      return ItemUseResult::Cancelled;
+    }
+    message(game_state, "Your wounds begin to magically heal. Thanks potion!", colors::LIGHT_VIOLET);
+    objects[PLAYER_IDX].heal(HEAL_AMOUNT);
+    return ItemUseResult::UsedUp;
+  }
+  return ItemUseResult::Cancelled;
 }
 
 fn npc_name(label: &str, objects: &[Object]) -> String {
