@@ -66,6 +66,14 @@ fn mut_two<T>(first_index: usize, second_index: usize, items: &mut [T]) -> (&mut
 
 type Messages = Vec<(String, Color)>;
 
+struct EngineState {
+  root: Root,
+  con: Offscreen,
+  panel: Offscreen,
+  fov: FovMap,
+  mouse: Mouse
+}
+
 struct GameState {
   debug_mode: bool,
   debug_disable_fog: bool,
@@ -389,7 +397,7 @@ fn check_tile_for_collision(x: i32, y: i32, map: &Map, objects: &[Object]) -> Ti
   return coll_info;
 }
 
-fn pick_up_item(object_id: usize, objects: &mut Vec<Object>, game_state: &mut GameState) {
+fn pick_up_item(game_state: &mut GameState, object_id: usize, objects: &mut Vec<Object>) {
   if game_state.inventory.len() >= 26 {
     message(game_state,
             format!("You can't pick up the {}. You're inventory is full!", objects[object_id].name),
@@ -570,11 +578,11 @@ fn visible_objects_at_pos<'a, 'b>(x: i32, y: i32, objects: &'a [Object], fov_map
   return ret;
 }
 
-fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut FovMap,
-                game_state: &mut GameState) {
+fn ai_take_turn(game_state: &mut GameState, engine: &mut EngineState, npc_id: usize,
+                objects: &mut [Object], map: &Map) {
   let (npc_x, npc_y) = objects[npc_id].pos();
 
-  if fov_map.is_in_fov(npc_x, npc_y) {
+  if engine.fov.is_in_fov(npc_x, npc_y) {
     if objects[npc_id].distance_to(&objects[PLAYER_IDX]) >= 2.0 {
       let player_pos = objects[PLAYER_IDX].pos();
       move_towards(npc_id, player_pos, map, objects);
@@ -586,8 +594,8 @@ fn ai_take_turn(npc_id: usize, objects: &mut [Object], map: &Map, fov_map: &mut 
   }
 }
 
-fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut Vec<Object>,
-                game_state: &mut GameState) -> PlayerAction {
+fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
+                map : &Map, objects: &mut Vec<Object>) -> PlayerAction {
   use tcod::input::KeyCode::*;
   use PlayerAction::*;
 
@@ -595,8 +603,8 @@ fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut Vec<Object>
   match (key, is_player_alive) {
     // Toggle fullscreen
     (Key { code: Enter, alt: true, .. }, _) => {
-      let fullscreen = root.is_fullscreen();
-      root.set_fullscreen(!fullscreen);
+      let fullscreen = engine.root.is_fullscreen();
+      engine.root.set_fullscreen(!fullscreen);
       DidntTakeTurn
     }
 
@@ -625,7 +633,7 @@ fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut Vec<Object>
 
     // Open inventory
     (Key { printable: 'i', .. }, true) => {
-      render_inventory_menu(game_state, root);
+      render_inventory_menu(game_state, engine);
       TookTurn
     }
 
@@ -635,7 +643,7 @@ fn handle_input(key: Key, root: &mut Root, map : &Map, objects: &mut Vec<Object>
         obj.item.is_some() && obj.pos() == objects[PLAYER_IDX].pos()
       });
       if let Some(item_id) = item_id {
-        pick_up_item(item_id, objects, game_state);
+        pick_up_item(game_state, item_id, objects);
       }
       DidntTakeTurn
     }
@@ -713,7 +721,7 @@ fn render_menu<T: AsRef<str>>(header: &str, options: &[T], width: i32,
   }
 }
 
-fn render_inventory_menu(game_state: &GameState, root: &mut Root) -> Option<usize> {
+fn render_inventory_menu(game_state: &mut GameState, engine: &mut EngineState) -> Option<usize> {
   let options = if game_state.inventory.is_empty() {
     vec![]
   } else {
@@ -721,7 +729,8 @@ fn render_inventory_menu(game_state: &GameState, root: &mut Root) -> Option<usiz
   };
 
   let header = "Use an item by pressing the key next to it.\n";
-  let inventory_idx = render_menu(header, &options, INVENTORY_WIDTH, root, "Inventory is empty!");
+  let inventory_idx = render_menu(header, &options, INVENTORY_WIDTH, &mut engine.root,
+                                  "Inventory is empty!");
 
   if game_state.inventory.len() > 0 {
     return inventory_idx;
@@ -748,10 +757,10 @@ fn render_bar(panel: &mut Offscreen, x: i32, y: i32, total_width: i32, name: &st
                  &format!("{}: {}/{}", name, value, maximum));
 }
 
+
 // NOTE: We use the type &[Object] for objects because we want an immutable slice (a view)
-fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
-              panel: &mut Offscreen, objects: &[Object], map: &Map, fov_map: &mut FovMap,
-              mouse: &Mouse, render_map: bool) {
+fn render_all(game_state: &mut GameState, engine: &mut EngineState, objects: &[Object],
+              map: &Map, render_map: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
   if render_map {
     for y in 0..MAP_HEIGHT {
@@ -768,7 +777,7 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
             (true, true) => COLOR_LIGHT_WALL,
             (true, false) => COLOR_LIGHT_GROUND,
           };
-          con.set_char_background(x, y, color, BackgroundFlag::Set);
+          engine.con.set_char_background(x, y, color, BackgroundFlag::Set);
         }
       }
     }
@@ -776,33 +785,38 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
 
   let mut to_draw: Vec<_> = objects
     .iter()
-    .filter(|o| game_state.debug_disable_fog || fov_map.is_in_fov(o.x, o.y))
+    .filter(|o| game_state.debug_disable_fog || engine.fov.is_in_fov(o.x, o.y))
     .collect();
 
   to_draw.sort_by(|o1, o2| { o1.blocks.cmp(&o2.blocks) });
   for obj in &to_draw {
-    obj.draw(con);
+    obj.draw(&mut engine.con);
   }
 
-  blit(con, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (0, 0), 1.0, 1.0);
+  blit(&engine.con,
+       (0, 0), (MAP_WIDTH, MAP_HEIGHT),
+       &mut engine.root,
+       (0, 0), 1.0, 1.0);
 
   // Render the info panel
 
   // Show stats
-  panel.set_default_background(colors::BLACK);
-  panel.clear();
+  engine.panel.set_default_background(colors::BLACK);
+  engine.panel.clear();
 
   let hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.hp);
   let max_hp = objects[PLAYER_IDX].char_attributes.map_or(0, |f| f.max_hp);
-  render_bar(panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp,
+  render_bar(&mut engine.panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp,
              colors::WHITE, colors::LIGHT_RED, colors::DARKER_RED);
 
   // Objects under player or mouse
-  let mut visible_objects = visible_objects_at_pos(mouse.cx as i32, mouse.cy as i32,
-                                                   objects, fov_map);
+  let mut visible_objects = visible_objects_at_pos(engine.mouse.cx as i32,
+                                                   engine.mouse.cy as i32,
+                                                   objects,
+                                                   &engine.fov);
   if visible_objects.is_empty() {
     visible_objects = visible_objects_at_pos(objects[PLAYER_IDX].x, objects[PLAYER_IDX].y,
-                                             objects, fov_map);
+                                             objects, &engine.fov);
   }
   let obj_names = visible_objects
                   .iter()
@@ -810,27 +824,30 @@ fn render_all(game_state: &GameState, root: &mut Root, con: &mut Offscreen,
                   .collect::<Vec<_>>()
                   .join(", ");
 
-  panel.set_default_foreground(colors::LIGHT_GREY);
-  panel.print_ex(1, 0, BackgroundFlag::None, TextAlignment::Left, obj_names);
+  engine.panel.set_default_foreground(colors::LIGHT_GREY);
+  engine.panel.print_ex(1, 0, BackgroundFlag::None, TextAlignment::Left, obj_names);
 
   // Game messages
   let mut y = MSG_HEIGHT as i32;
   for &(ref msg, color) in game_state.messages.iter().rev() {
-    let msg_height = panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+    let msg_height = engine.panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
     y -= msg_height;
     if y < 0 {
       break;
     }
-    panel.set_default_foreground(color);
-    panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+    engine.panel.set_default_foreground(color);
+    engine.panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
   }
 
-  blit(panel, (0, 0), (SCREEN_WIDTH, PANEL_HEIGHT), root, (0, PANEL_Y), 1.0, 1.0);
+  blit(&engine.panel,
+       (0, 0), (SCREEN_WIDTH, PANEL_HEIGHT),
+       &mut engine.root,
+       (0, PANEL_Y), 1.0, 1.0);
 }
 
 
 fn main() {
-  let mut root = Root::initializer()
+  let root = Root::initializer()
     .font("data/fonts/arial10x10.png", FontLayout::Tcod)
     .font_type(FontType::Greyscale)
     .size(SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -838,8 +855,13 @@ fn main() {
     .init();
   tcod::system::set_fps(LIMIT_FPS);
 
-  let mut con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
-  let mut panel = Offscreen::new(SCREEN_WIDTH, PANEL_HEIGHT);
+  let mut engine = EngineState {
+    root: root,
+    con: Offscreen::new(MAP_WIDTH, MAP_HEIGHT),
+    panel: Offscreen::new(SCREEN_WIDTH, PANEL_HEIGHT),
+    fov: FovMap::new(MAP_WIDTH, MAP_HEIGHT),
+    mouse: Default::default(),
+  };
 
   let mut game_state = GameState {
     debug_mode: false,
@@ -893,16 +915,14 @@ fn main() {
   let mut map = make_map(&mut thread_ctx, &mut objects);
 
   // Init fov
-  let mut fov_map = FovMap::new(MAP_WIDTH, MAP_HEIGHT);
   for y in 0..MAP_HEIGHT {
     for x in 0..MAP_WIDTH {
-      fov_map.set(x, y,
-                  !map[(y * MAP_WIDTH + x) as usize].blocks_sight,
-                  !map[(y * MAP_WIDTH + x) as usize].passable);
+      engine.fov.set(x, y,
+                     !map[(y * MAP_WIDTH + x) as usize].blocks_sight,
+                     !map[(y * MAP_WIDTH + x) as usize].passable);
     }
   }
 
-  let mut mouse = Default::default();
   let mut keypress = Default::default();
   let mut previous_player_pos = (-1, -1);
 
@@ -910,11 +930,12 @@ fn main() {
     let recompute_fov = previous_player_pos != (objects[PLAYER_IDX].x, objects[PLAYER_IDX].y);
     if recompute_fov {
       let player_ref = &objects[PLAYER_IDX];
-      fov_map.compute_fov(player_ref.x, player_ref.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
+      engine.fov.compute_fov(player_ref.x, player_ref.y, TORCH_RADIUS,
+                             FOV_LIGHT_WALLS, FOV_ALGO);
     }
 
     match input::check_for_event(input::MOUSE | input::KEY_PRESS) {
-      Some((_, Event::Mouse(m))) => mouse = m,
+      Some((_, Event::Mouse(m))) => engine.mouse = m,
       Some((_, Event::Key(k))) => keypress = k,
       _ => keypress = Default::default(),
     }
@@ -927,9 +948,9 @@ fn main() {
     //   to visit the body and take scraps if anything is still there.
 
     previous_player_pos = objects[PLAYER_IDX].pos();
-    let player_action = handle_input(keypress, &mut root, &map, &mut objects, &mut game_state);
+    let player_action = handle_input(keypress, &mut game_state, &mut engine, &map, &mut objects);
 
-    if player_action == PlayerAction::Exit || root.window_closed() {
+    if player_action == PlayerAction::Exit || engine.root.window_closed() {
       game_state.game_running = false;
       break;
     }
@@ -938,36 +959,35 @@ fn main() {
     if game_state.game_running && player_action == PlayerAction::TookTurn {
       for id in 0..objects.len() {
         if objects[id].brain.is_some() && objects[id].alive {
-          ai_take_turn(id, &mut objects, &map, &mut fov_map, &mut game_state);
+          ai_take_turn(&mut game_state, &mut engine, id, &mut objects, &map);
         }
       }
     }
 
-    update_map(&mut map, &mut fov_map, recompute_fov);
+    update_map(&mut map, &mut engine.fov, recompute_fov);
 
     // @improvement create a smooth scrolling camera
-    render_all(&game_state, &mut root, &mut con, &mut panel, &objects, &map, &mut fov_map,
-               &mouse, recompute_fov);
+    render_all(&mut game_state, &mut engine, &objects, &map, recompute_fov);
 
     if game_state.debug_mode {
       let mut seed_type_label = "Active";
       if thread_ctx.custom_seed {
-        root.set_default_foreground(colors::RED);
+        engine.root.set_default_foreground(colors::RED);
         seed_type_label = "Custom";
       }
       else {
-        root.set_default_foreground(colors::WHITE);
+        engine.root.set_default_foreground(colors::WHITE);
       }
-      root.print_ex(1, SCREEN_HEIGHT - 2, BackgroundFlag::None, TextAlignment::Left,
-                    format!("{} Seed: {}", seed_type_label, thread_ctx.rand_seed));
+      engine.root.print_ex(1, SCREEN_HEIGHT - 2, BackgroundFlag::None, TextAlignment::Left,
+                           format!("{} Seed: {}", seed_type_label, thread_ctx.rand_seed));
     }
 
-    root.flush();
-    root.clear(); // clears text
+    engine.root.flush();
+    engine.root.clear(); // clears text
 
     // Erase objects at their old locations before moving
     for object in &objects {
-      object.clear(&mut con);
+      object.clear(&mut engine.con);
     }
   }
 }
