@@ -79,7 +79,8 @@ struct GameState {
   debug_disable_fog: bool,
   messages: Messages,
   game_running: bool,
-  inventory: Vec<Object>
+  inventory: Vec<Object>,
+  map: Map
 }
 
 
@@ -544,7 +545,7 @@ fn attempt_move(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object]) 
   return coll_info;
 }
 
-fn move_towards(id: usize, (target_x, target_y): (i32, i32), map:&Map, objects: &mut [Object]) {
+fn move_towards(id: usize, (target_x, target_y): (i32, i32), map: &Map, objects: &mut [Object]) {
   let dx = target_x - objects[id].x;
   let dy = target_y - objects[id].y;
   let distance = ((dx.pow(2) + dy.pow(2)) as f32).sqrt();
@@ -554,9 +555,8 @@ fn move_towards(id: usize, (target_x, target_y): (i32, i32), map:&Map, objects: 
   attempt_move(id, dx, dy, map, objects);
 }
 
-fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object],
-                         game_state: &mut GameState) {
-  let coll_info = attempt_move(PLAYER_IDX, dx, dy, map, objects);
+fn player_move_or_attack(game_state: &mut GameState, dx: i32, dy: i32, objects: &mut [Object]) {
+  let coll_info = attempt_move(PLAYER_IDX, dx, dy, &game_state.map, objects);
   if coll_info.obj_collision && coll_info.collision_id.is_some() {
     let (player, target) = mut_two(PLAYER_IDX, coll_info.collision_id.unwrap(), objects);
     if target.alive {
@@ -579,13 +579,13 @@ fn visible_objects_at_pos<'a, 'b>(x: i32, y: i32, objects: &'a [Object], fov_map
 }
 
 fn ai_take_turn(game_state: &mut GameState, engine: &mut EngineState, npc_id: usize,
-                objects: &mut [Object], map: &Map) {
+                objects: &mut [Object]) {
   let (npc_x, npc_y) = objects[npc_id].pos();
 
   if engine.fov.is_in_fov(npc_x, npc_y) {
     if objects[npc_id].distance_to(&objects[PLAYER_IDX]) >= 2.0 {
       let player_pos = objects[PLAYER_IDX].pos();
-      move_towards(npc_id, player_pos, map, objects);
+      move_towards(npc_id, player_pos, &game_state.map, objects);
     }
     else if objects[PLAYER_IDX].alive {
       let (npc, player) = mut_two(npc_id, PLAYER_IDX, objects);
@@ -595,7 +595,7 @@ fn ai_take_turn(game_state: &mut GameState, engine: &mut EngineState, npc_id: us
 }
 
 fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
-                map : &Map, objects: &mut Vec<Object>) -> PlayerAction {
+                objects: &mut Vec<Object>) -> PlayerAction {
   use tcod::input::KeyCode::*;
   use PlayerAction::*;
 
@@ -613,19 +613,19 @@ fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
 
     // Movement
     (Key { code: Up, .. }, true) => {
-      player_move_or_attack(0, -1, map, objects, game_state);
+      player_move_or_attack(game_state, 0, -1, objects);
       TookTurn
     }
     (Key { code: Down, .. }, true) => {
-      player_move_or_attack(0, 1, map, objects, game_state);
+      player_move_or_attack(game_state, 0, 1, objects);
       TookTurn
     }
     (Key { code: Left, .. }, true) => {
-      player_move_or_attack(-1, 0, map, objects, game_state);
+      player_move_or_attack(game_state, -1, 0, objects);
       TookTurn
     }
     (Key { code: Right, .. }, true) => {
-      player_move_or_attack(1, 0, map, objects, game_state);
+      player_move_or_attack(game_state, 1, 0, objects);
       TookTurn
     }
 
@@ -652,13 +652,13 @@ fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
   }
 }
 
-fn update_map(map: &mut Map, fov_map: &mut FovMap, player_moved: bool) {
+fn update_map(game_state: &mut GameState, fov_map: &mut FovMap, player_moved: bool) {
   // For now we only care about updating tile visibility and that only needs to happen
   // when the player moved
   if player_moved {
     for y in 0..MAP_HEIGHT {
       for x in 0..MAP_WIDTH {
-        let tile = &mut map[(y * MAP_WIDTH + x) as usize];
+        let tile = &mut game_state.map[(y * MAP_WIDTH + x) as usize];
         // @perf this can potentially be slow if we're dealing with a ton of tiles
         tile.visible = fov_map.is_in_fov(x, y);
         if tile.visible && !tile.explored {
@@ -760,12 +760,12 @@ fn render_bar(panel: &mut Offscreen, x: i32, y: i32, total_width: i32, name: &st
 
 // NOTE: We use the type &[Object] for objects because we want an immutable slice (a view)
 fn render_all(game_state: &mut GameState, engine: &mut EngineState, objects: &[Object],
-              map: &Map, render_map: bool) {
+              render_map: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
   if render_map {
     for y in 0..MAP_HEIGHT {
       for x in 0..MAP_WIDTH {
-        let tile = &map[(y * MAP_WIDTH + x) as usize];
+        let tile = &game_state.map[(y * MAP_WIDTH + x) as usize];
 
         if tile.explored || game_state.debug_disable_fog || tile.visible {
           let is_wall = tile.blocks_sight;
@@ -855,42 +855,28 @@ fn main() {
     .init();
   tcod::system::set_fps(LIMIT_FPS);
 
-  let mut engine = EngineState {
-    root: root,
-    con: Offscreen::new(MAP_WIDTH, MAP_HEIGHT),
-    panel: Offscreen::new(SCREEN_WIDTH, PANEL_HEIGHT),
-    fov: FovMap::new(MAP_WIDTH, MAP_HEIGHT),
-    mouse: Default::default(),
-  };
-
-  let mut game_state = GameState {
-    debug_mode: false,
-    debug_disable_fog: false,
-    messages: vec![],
-    game_running: true,
-    inventory: vec![],
-  };
-
   // Setup the number generator
   let mut thread_ctx: ThreadContext;
 
   let mut provided_rng_seed: Option<i32> = None;
   let mut found_seed_flag = false;
   let mut found_debug_flag = false;
+  let mut debug_mode = false;
+  let mut debug_disable_fog = false;
 
   for argument in env::args() {
     if found_seed_flag {
       provided_rng_seed = Some(argument.trim().parse().expect("seed flag must be a number"));
       found_seed_flag = false;
     } else if found_debug_flag {
-      game_state.debug_mode = (argument.trim() != "false");
+      debug_mode = (argument.trim() != "false");
       found_debug_flag = false;
     }
     else {
       match argument.as_ref() {
         "--seed"        => found_seed_flag = true,
         "--debug"       => found_debug_flag = true,
-        "--disable-fog" => game_state.debug_disable_fog = true,
+        "--disable-fog" => debug_disable_fog = true,
         _ => {}
       };
     }
@@ -905,6 +891,14 @@ fn main() {
     }
   }
 
+  let mut engine = EngineState {
+    root: root,
+    con: Offscreen::new(MAP_WIDTH, MAP_HEIGHT),
+    panel: Offscreen::new(SCREEN_WIDTH, PANEL_HEIGHT),
+    fov: FovMap::new(MAP_WIDTH, MAP_HEIGHT),
+    mouse: Default::default(),
+  };
+
   let mut player = Object::new(0, 0, '@', 'X', "Player Bob", colors::WHITE, true, true);
   player.alive = true;
   player.char_attributes = Some(components::CharacterAttributes{
@@ -912,7 +906,7 @@ fn main() {
   });
 
   let mut objects = vec![player];
-  let mut map = make_map(&mut thread_ctx, &mut objects);
+  let map = make_map(&mut thread_ctx, &mut objects);
 
   // Init fov
   for y in 0..MAP_HEIGHT {
@@ -922,6 +916,15 @@ fn main() {
                      !map[(y * MAP_WIDTH + x) as usize].passable);
     }
   }
+
+  let mut game_state = GameState {
+    debug_mode: debug_mode,
+    debug_disable_fog: debug_disable_fog,
+    messages: vec![],
+    game_running: true,
+    inventory: vec![],
+    map: map
+  };
 
   let mut keypress = Default::default();
   let mut previous_player_pos = (-1, -1);
@@ -948,7 +951,7 @@ fn main() {
     //   to visit the body and take scraps if anything is still there.
 
     previous_player_pos = objects[PLAYER_IDX].pos();
-    let player_action = handle_input(keypress, &mut game_state, &mut engine, &map, &mut objects);
+    let player_action = handle_input(keypress, &mut game_state, &mut engine, &mut objects);
 
     if player_action == PlayerAction::Exit || engine.root.window_closed() {
       game_state.game_running = false;
@@ -959,15 +962,15 @@ fn main() {
     if game_state.game_running && player_action == PlayerAction::TookTurn {
       for id in 0..objects.len() {
         if objects[id].brain.is_some() && objects[id].alive {
-          ai_take_turn(&mut game_state, &mut engine, id, &mut objects, &map);
+          ai_take_turn(&mut game_state, &mut engine, id, &mut objects);
         }
       }
     }
 
-    update_map(&mut map, &mut engine.fov, recompute_fov);
+    update_map(&mut game_state, &mut engine.fov, recompute_fov);
 
     // @improvement create a smooth scrolling camera
-    render_all(&mut game_state, &mut engine, &objects, &map, recompute_fov);
+    render_all(&mut game_state, &mut engine, &objects, recompute_fov);
 
     if game_state.debug_mode {
       let mut seed_type_label = "Active";
