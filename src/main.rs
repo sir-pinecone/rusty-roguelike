@@ -416,7 +416,7 @@ enum ItemUseResult {
   Cancelled
 }
 
-fn use_item(inventory_id: usize, game_state: &mut GameState, objects: &mut Vec<Object>) {
+fn use_item(game_state: &mut GameState, inventory_id: usize, objects: &mut Vec<Object>) {
   use components::Item::*;
   if let Some(item) = game_state.inventory[inventory_id].item {
     let on_use = match item {
@@ -442,7 +442,7 @@ fn cast_heal(game_state: &mut GameState, objects: &mut [Object]) -> ItemUseResul
       message(game_state, "You're already at full health.", colors::RED);
       return ItemUseResult::Cancelled;
     }
-    message(game_state, "Your wounds begin to magically heal. Thanks potion!", colors::LIGHT_VIOLET);
+    message(game_state, "Your wounds begin to magically heal. Thanks, potion!", colors::LIGHT_VIOLET);
     objects[PLAYER_IDX].heal(HEAL_AMOUNT);
     return ItemUseResult::UsedUp;
   }
@@ -633,8 +633,12 @@ fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
 
     // Open inventory
     (Key { printable: 'i', .. }, true) => {
-      render_inventory_menu(game_state, engine);
-      TookTurn
+      let inventory_idx = render_inventory_menu(game_state, engine);
+      if let Some(inventory_idx) = inventory_idx {
+        use_item(game_state, inventory_idx, objects);
+        return TookTurn;
+      }
+      DidntTakeTurn
     }
 
     // Pick up item
