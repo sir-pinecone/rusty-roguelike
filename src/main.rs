@@ -886,14 +886,11 @@ fn main() {
     }
   }
 
-  match provided_rng_seed {
-    Some(provided_rng_seed) => {
-      thread_ctx = ThreadContext::from_seed(provided_rng_seed);
-    }
-    None => {
-      thread_ctx = ThreadContext::new();
-    }
-  }
+  thread_ctx = if provided_rng_seed.is_some() {
+    ThreadContext::from_seed(provided_rng_seed.unwrap())
+  } else {
+    ThreadContext::new()
+  };
 
   let mut engine = EngineState {
     root: root,
