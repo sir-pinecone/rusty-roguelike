@@ -180,7 +180,7 @@ impl Object {
   }
 
   // @incomplete switch to f32 for damage/health, etc
-  pub fn take_damage(&mut self, damage: i32, game_state: &mut GameState) {
+  pub fn take_damage(&mut self, game: &mut GameState, damage: i32) {
     if self.alive && damage > 0 {
       if let Some(ref mut char_attributes) = self.char_attributes {
         char_attributes.hp -= cmp::min(damage, char_attributes.hp);
@@ -190,7 +190,7 @@ impl Object {
       }
       if let Some(char_attributes) = self.char_attributes {
         if !self.alive {
-          on_object_death(self, game_state);
+          on_object_death(self, game);
         }
       }
     }
@@ -205,14 +205,14 @@ impl Object {
     }
   }
 
-  pub fn attack(&mut self, target: &mut Object, game_state: &mut GameState) {
+  pub fn attack(&mut self, target: &mut Object, game: &mut GameState) {
     let damage = self.char_attributes.map_or(0, |x| x.power) -
                  target.char_attributes.map_or(0, |x| x.defense);
     if damage > 0 {
-      game_state.log.add(format!("{} attacks {} and deals {} damage!", self.name, target.name, damage), colors::WHITE);
-      target.take_damage(damage, game_state);
+      game.log.add(format!("{} attacks {} and deals {} damage!", self.name, target.name, damage), colors::WHITE);
+      target.take_damage(game, damage);
     } else {
-      game_state.log.add(format!("{} attacks {}, but it has no effect!", self.name, target.name), colors::WHITE);
+      game.log.add(format!("{} attacks {}, but it has no effect!", self.name, target.name), colors::WHITE);
     }
   }
 
@@ -310,8 +310,8 @@ struct TileCollisionInfo {
 
 // TODO @incomplete
 /*
-  if game_state.log.len() == MSG_HEIGHT {
-    game_state.log.remove(0);
+  if game.log.len() == MSG_HEIGHT {
+    game.log.remove(0);
 */
 
 /* Places a rect of empty tiles into `map` */
@@ -408,16 +408,16 @@ fn check_tile_for_collision(x: i32, y: i32, map: &Map, objects: &[Object]) -> Ti
   return coll_info;
 }
 
-fn pick_up_item(game_state: &mut GameState, object_id: usize, objects: &mut Vec<Object>) {
-  if game_state.inventory.len() >= 26 {
-    game_state.log.add(
+fn pick_up_item(game: &mut GameState, object_id: usize, objects: &mut Vec<Object>) {
+  if game.inventory.len() >= 26 {
+    game.log.add(
       format!("You can't pick up the {}. You're inventory is full!", objects[object_id].name),
       colors::RED);
   }
   else {
     let item = objects.swap_remove(object_id);
-    game_state.log.add(format!("You picked up a {}!", item.name), colors::GREEN);
-    game_state.inventory.push(item);
+    game.log.add(format!("You picked up a {}!", item.name), colors::GREEN);
+    game.inventory.push(item);
   }
 }
 
@@ -426,33 +426,33 @@ enum ItemUseResult {
   Cancelled
 }
 
-fn use_item(game_state: &mut GameState, inventory_id: usize, objects: &mut Vec<Object>) {
+fn use_item(game: &mut GameState, inventory_id: usize, objects: &mut Vec<Object>) {
   use components::Item::*;
-  if let Some(item) = game_state.inventory[inventory_id].item {
+  if let Some(item) = game.inventory[inventory_id].item {
     let on_use = match item {
       Heal => cast_heal
     };
-    match on_use(game_state, objects) {
+    match on_use(game, objects) {
       ItemUseResult::UsedUp => {
-        game_state.inventory.remove(inventory_id);
+        game.inventory.remove(inventory_id);
       }
       ItemUseResult::Cancelled => {
-        game_state.log.add("Cancelled", colors::WHITE);
+        game.log.add("Cancelled", colors::WHITE);
       }
     }
   } else {
-    let item_name = game_state.inventory[inventory_id].name.clone();
-    game_state.log.add(format!("The {} cannot be used.", item_name), colors::WHITE);
+    let item_name = game.inventory[inventory_id].name.clone();
+    game.log.add(format!("The {} cannot be used.", item_name), colors::WHITE);
   }
 }
 
-fn cast_heal(game_state: &mut GameState, objects: &mut [Object]) -> ItemUseResult {
+fn cast_heal(game: &mut GameState, objects: &mut [Object]) -> ItemUseResult {
   if let Some(char_attributes) = objects[PLAYER_IDX].char_attributes {
     if char_attributes.hp == char_attributes.max_hp {
-      game_state.log.add("You're already at full health.", colors::RED);
+      game.log.add("You're already at full health.", colors::RED);
       return ItemUseResult::Cancelled;
     }
-    game_state.log.add("Your wounds begin to magically heal. Thanks, potion!", colors::LIGHT_VIOLET);
+    game.log.add("Your wounds begin to magically heal. Thanks, potion!", colors::LIGHT_VIOLET);
     objects[PLAYER_IDX].heal(HEAL_AMOUNT);
     return ItemUseResult::UsedUp;
   }
@@ -526,18 +526,18 @@ fn place_objects(thread_ctx: &mut ThreadContext, room: Rect, map: &Map,
   }
 }
 
-fn on_object_death(obj: &mut Object, game_state: &mut GameState) {
+fn on_object_death(obj: &mut Object, game: &mut GameState) {
   match obj.brain {
     Some(brain) => {
       // AI
-      game_state.log.add(format!("{} died!", obj.name), colors::RED);
+      game.log.add(format!("{} died!", obj.name), colors::RED);
       obj.name = format!("{} [corpse]", obj.name);
       obj.blocks = false;
       obj.brain = None;
     },
     // player
     None => {
-      game_state.log.add(format!("{} died!", obj.name), colors::RED);
+      game.log.add(format!("{} died!", obj.name), colors::RED);
       obj.blocks = false;
     }
   }
@@ -565,15 +565,15 @@ fn move_towards(id: usize, (target_x, target_y): (i32, i32), map: &Map, objects:
   attempt_move(id, dx, dy, map, objects);
 }
 
-fn player_move_or_attack(game_state: &mut GameState, dx: i32, dy: i32, objects: &mut [Object]) {
-  let coll_info = attempt_move(PLAYER_IDX, dx, dy, &game_state.map, objects);
+fn player_move_or_attack(game: &mut GameState, dx: i32, dy: i32, objects: &mut [Object]) {
+  let coll_info = attempt_move(PLAYER_IDX, dx, dy, &game.map, objects);
   if coll_info.obj_collision && coll_info.collision_id.is_some() {
     let (player, target) = mut_two(PLAYER_IDX, coll_info.collision_id.unwrap(), objects);
     if target.alive {
-      player.attack(target, game_state);
+      player.attack(target, game);
     }
     else {
-      game_state.log.add(format!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name), colors::BLUE);
+      game.log.add(format!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name), colors::BLUE);
     }
   }
 }
@@ -588,23 +588,23 @@ fn visible_objects_at_pos<'a, 'b>(x: i32, y: i32, objects: &'a [Object], fov_map
   return ret;
 }
 
-fn ai_take_turn(game_state: &mut GameState, engine: &mut EngineState, npc_id: usize,
+fn ai_take_turn(game: &mut GameState, engine: &mut EngineState, npc_id: usize,
                 objects: &mut [Object]) {
   let (npc_x, npc_y) = objects[npc_id].pos();
 
   if engine.fov.is_in_fov(npc_x, npc_y) {
     if objects[npc_id].distance_to(&objects[PLAYER_IDX]) >= 2.0 {
       let player_pos = objects[PLAYER_IDX].pos();
-      move_towards(npc_id, player_pos, &game_state.map, objects);
+      move_towards(npc_id, player_pos, &game.map, objects);
     }
     else if objects[PLAYER_IDX].alive {
       let (npc, player) = mut_two(npc_id, PLAYER_IDX, objects);
-      npc.attack(player, game_state);
+      npc.attack(player, game);
     }
   }
 }
 
-fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
+fn handle_input(key: Key, game: &mut GameState, engine: &mut EngineState,
                 objects: &mut Vec<Object>) -> PlayerAction {
   use tcod::input::KeyCode::*;
   use PlayerAction::*;
@@ -623,19 +623,19 @@ fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
 
     // Movement
     (Key { code: Up, .. }, true) => {
-      player_move_or_attack(game_state, 0, -1, objects);
+      player_move_or_attack(game, 0, -1, objects);
       TookTurn
     }
     (Key { code: Down, .. }, true) => {
-      player_move_or_attack(game_state, 0, 1, objects);
+      player_move_or_attack(game, 0, 1, objects);
       TookTurn
     }
     (Key { code: Left, .. }, true) => {
-      player_move_or_attack(game_state, -1, 0, objects);
+      player_move_or_attack(game, -1, 0, objects);
       TookTurn
     }
     (Key { code: Right, .. }, true) => {
-      player_move_or_attack(game_state, 1, 0, objects);
+      player_move_or_attack(game, 1, 0, objects);
       TookTurn
     }
 
@@ -643,9 +643,9 @@ fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
 
     // Open inventory
     (Key { printable: 'i', .. }, true) => {
-      let inventory_idx = render_inventory_menu(game_state, engine);
+      let inventory_idx = render_inventory_menu(game, engine);
       if let Some(inventory_idx) = inventory_idx {
-        use_item(game_state, inventory_idx, objects);
+        use_item(game, inventory_idx, objects);
         return TookTurn;
       }
       DidntTakeTurn
@@ -657,7 +657,7 @@ fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
         obj.item.is_some() && obj.pos() == objects[PLAYER_IDX].pos()
       });
       if let Some(item_id) = item_id {
-        pick_up_item(game_state, item_id, objects);
+        pick_up_item(game, item_id, objects);
       }
       DidntTakeTurn
     }
@@ -666,13 +666,13 @@ fn handle_input(key: Key, game_state: &mut GameState, engine: &mut EngineState,
   }
 }
 
-fn update_map(game_state: &mut GameState, fov_map: &mut FovMap, player_moved: bool) {
+fn update_map(game: &mut GameState, fov_map: &mut FovMap, player_moved: bool) {
   // For now we only care about updating tile visibility and that only needs to happen
   // when the player moved
   if player_moved {
     for y in 0..MAP_HEIGHT {
       for x in 0..MAP_WIDTH {
-        let tile = &mut game_state.map[(y * MAP_WIDTH + x) as usize];
+        let tile = &mut game.map[(y * MAP_WIDTH + x) as usize];
         // @perf this can potentially be slow if we're dealing with a ton of tiles
         tile.visible = fov_map.is_in_fov(x, y);
         if tile.visible && !tile.explored {
@@ -735,18 +735,18 @@ fn render_menu<T: AsRef<str>>(header: &str, options: &[T], width: i32,
   }
 }
 
-fn render_inventory_menu(game_state: &mut GameState, engine: &mut EngineState) -> Option<usize> {
-  let options = if game_state.inventory.is_empty() {
+fn render_inventory_menu(game: &mut GameState, engine: &mut EngineState) -> Option<usize> {
+  let options = if game.inventory.is_empty() {
     vec![]
   } else {
-    game_state.inventory.iter().map(|item| { item.name.clone() }).collect()
+    game.inventory.iter().map(|item| { item.name.clone() }).collect()
   };
 
   let header = "Use an item by pressing the key next to it.\n";
   let inventory_idx = render_menu(header, &options, INVENTORY_WIDTH, &mut engine.root,
                                   "Inventory is empty!");
 
-  if game_state.inventory.len() > 0 {
+  if game.inventory.len() > 0 {
     return inventory_idx;
   } else {
     return None;
@@ -773,15 +773,15 @@ fn render_bar(panel: &mut Offscreen, x: i32, y: i32, total_width: i32, name: &st
 
 
 // NOTE: We use the type &[Object] for objects because we want an immutable slice (a view)
-fn render_all(game_state: &mut GameState, engine: &mut EngineState, objects: &[Object],
+fn render_all(game: &mut GameState, engine: &mut EngineState, objects: &[Object],
               render_map: bool) {
   // No need to re-render the map unless the FOV needs to be recomputed
   if render_map {
     for y in 0..MAP_HEIGHT {
       for x in 0..MAP_WIDTH {
-        let tile = &game_state.map[(y * MAP_WIDTH + x) as usize];
+        let tile = &game.map[(y * MAP_WIDTH + x) as usize];
 
-        if tile.explored || game_state.debug_disable_fog || tile.visible {
+        if tile.explored || game.debug_disable_fog || tile.visible {
           let is_wall = tile.blocks_sight;
           let color = match(tile.visible, is_wall) {
             // Outside the FOV:
@@ -799,7 +799,7 @@ fn render_all(game_state: &mut GameState, engine: &mut EngineState, objects: &[O
 
   let mut to_draw: Vec<_> = objects
     .iter()
-    .filter(|o| game_state.debug_disable_fog || engine.fov.is_in_fov(o.x, o.y))
+    .filter(|o| game.debug_disable_fog || engine.fov.is_in_fov(o.x, o.y))
     .collect();
 
   to_draw.sort_by(|o1, o2| { o1.blocks.cmp(&o2.blocks) });
@@ -843,7 +843,7 @@ fn render_all(game_state: &mut GameState, engine: &mut EngineState, objects: &[O
 
   // Game messages
   let mut y = MSG_HEIGHT as i32;
-  for &(ref msg, color) in game_state.log.iter().rev() {
+  for &(ref msg, color) in game.log.iter().rev() {
     let msg_height = engine.panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
     y -= msg_height;
     if y < 0 {
@@ -857,6 +857,16 @@ fn render_all(game_state: &mut GameState, engine: &mut EngineState, objects: &[O
        (0, 0), (SCREEN_WIDTH, PANEL_HEIGHT),
        &mut engine.root,
        (0, PANEL_Y), 1.0, 1.0);
+}
+
+fn initialize_fov(game: &GameState, engine: &mut EngineState) {
+  for y in 0..MAP_HEIGHT {
+    for x in 0..MAP_WIDTH {
+      engine.fov.set(x, y,
+                     !game.map[(y * MAP_WIDTH + x) as usize].blocks_sight,
+                     !game.map[(y * MAP_WIDTH + x) as usize].passable);
+    }
+  }
 }
 
 
@@ -917,30 +927,23 @@ fn main() {
   });
 
   let mut objects = vec![player];
-  let map = make_map(&mut thread_ctx, &mut objects);
 
-  // Init fov
-  for y in 0..MAP_HEIGHT {
-    for x in 0..MAP_WIDTH {
-      engine.fov.set(x, y,
-                     !map[(y * MAP_WIDTH + x) as usize].blocks_sight,
-                     !map[(y * MAP_WIDTH + x) as usize].passable);
-    }
-  }
-
-  let mut game_state = GameState {
+  let mut game = GameState {
     debug_mode: debug_mode,
     debug_disable_fog: debug_disable_fog,
     log: vec![],
     game_running: true,
     inventory: vec![],
-    map: map
+    map: make_map(&mut thread_ctx, &mut objects)
   };
+
+  // Init fov
+  initialize_fov(&game, &mut engine);
 
   let mut keypress = Default::default();
   let mut previous_player_pos = (-1, -1);
 
-  while game_state.game_running {
+  while game.game_running {
     let recompute_fov = previous_player_pos != (objects[PLAYER_IDX].x, objects[PLAYER_IDX].y);
     if recompute_fov {
       let player_ref = &objects[PLAYER_IDX];
@@ -962,28 +965,28 @@ fn main() {
     //   to visit the body and take scraps if anything is still there.
 
     previous_player_pos = objects[PLAYER_IDX].pos();
-    let player_action = handle_input(keypress, &mut game_state, &mut engine, &mut objects);
+    let player_action = handle_input(keypress, &mut game, &mut engine, &mut objects);
 
     if player_action == PlayerAction::Exit || engine.root.window_closed() {
-      game_state.game_running = false;
+      game.game_running = false;
       break;
     }
 
     // Update monsters
-    if game_state.game_running && player_action == PlayerAction::TookTurn {
+    if game.game_running && player_action == PlayerAction::TookTurn {
       for id in 0..objects.len() {
         if objects[id].brain.is_some() && objects[id].alive {
-          ai_take_turn(&mut game_state, &mut engine, id, &mut objects);
+          ai_take_turn(&mut game, &mut engine, id, &mut objects);
         }
       }
     }
 
-    update_map(&mut game_state, &mut engine.fov, recompute_fov);
+    update_map(&mut game, &mut engine.fov, recompute_fov);
 
     // @improvement create a smooth scrolling camera
-    render_all(&mut game_state, &mut engine, &objects, recompute_fov);
+    render_all(&mut game, &mut engine, &objects, recompute_fov);
 
-    if game_state.debug_mode {
+    if game.debug_mode {
       let mut seed_type_label = "Active";
       if thread_ctx.custom_seed {
         engine.root.set_default_foreground(colors::RED);
