@@ -64,7 +64,19 @@ fn mut_two<T>(first_index: usize, second_index: usize, items: &mut [T]) -> (&mut
   }
 }
 
+
 type Messages = Vec<(String, Color)>;
+
+trait MessageLog {
+  fn add<T: Into<String>>(&mut self, message: T, color: Color);
+}
+
+impl MessageLog for Vec<(String, Color)> {
+  fn add<T: Into<String>>(&mut self, message: T, color: Color) {
+    self.push((message.into(), color));
+  }
+}
+
 
 struct EngineState {
   root: Root,
@@ -77,7 +89,7 @@ struct EngineState {
 struct GameState {
   debug_mode: bool,
   debug_disable_fog: bool,
-  messages: Messages,
+  log: Messages,
   game_running: bool,
   inventory: Vec<Object>,
   map: Map
@@ -197,10 +209,10 @@ impl Object {
     let damage = self.char_attributes.map_or(0, |x| x.power) -
                  target.char_attributes.map_or(0, |x| x.defense);
     if damage > 0 {
-      message(game_state, format!("{} attacks {} and deals {} damage!", self.name, target.name, damage), colors::WHITE);
+      game_state.log.add(format!("{} attacks {} and deals {} damage!", self.name, target.name, damage), colors::WHITE);
       target.take_damage(damage, game_state);
     } else {
-      message(game_state, format!("{} attacks {}, but it has no effect!", self.name, target.name), colors::WHITE);
+      game_state.log.add(format!("{} attacks {}, but it has no effect!", self.name, target.name), colors::WHITE);
     }
   }
 
@@ -296,13 +308,11 @@ struct TileCollisionInfo {
 }
 
 
-fn message<T: Into<String>>(game_state: &mut GameState, message: T, color: Color) {
-  if game_state.messages.len() == MSG_HEIGHT {
-    game_state.messages.remove(0);
-  }
-  game_state.messages.push((message.into(), color));
-}
-
+// TODO @incomplete
+/*
+  if game_state.log.len() == MSG_HEIGHT {
+    game_state.log.remove(0);
+*/
 
 /* Places a rect of empty tiles into `map` */
 fn create_room(room: Rect, map: &mut Map) {
@@ -400,13 +410,13 @@ fn check_tile_for_collision(x: i32, y: i32, map: &Map, objects: &[Object]) -> Ti
 
 fn pick_up_item(game_state: &mut GameState, object_id: usize, objects: &mut Vec<Object>) {
   if game_state.inventory.len() >= 26 {
-    message(game_state,
-            format!("You can't pick up the {}. You're inventory is full!", objects[object_id].name),
-            colors::RED);
+    game_state.log.add(
+      format!("You can't pick up the {}. You're inventory is full!", objects[object_id].name),
+      colors::RED);
   }
   else {
     let item = objects.swap_remove(object_id);
-    message(game_state, format!("You picked up a {}!", item.name), colors::GREEN);
+    game_state.log.add(format!("You picked up a {}!", item.name), colors::GREEN);
     game_state.inventory.push(item);
   }
 }
@@ -427,22 +437,22 @@ fn use_item(game_state: &mut GameState, inventory_id: usize, objects: &mut Vec<O
         game_state.inventory.remove(inventory_id);
       }
       ItemUseResult::Cancelled => {
-        message(game_state, "Cancelled", colors::WHITE);
+        game_state.log.add("Cancelled", colors::WHITE);
       }
     }
   } else {
     let item_name = game_state.inventory[inventory_id].name.clone();
-    message(game_state, format!("The {} cannot be used.", item_name), colors::WHITE);
+    game_state.log.add(format!("The {} cannot be used.", item_name), colors::WHITE);
   }
 }
 
 fn cast_heal(game_state: &mut GameState, objects: &mut [Object]) -> ItemUseResult {
   if let Some(char_attributes) = objects[PLAYER_IDX].char_attributes {
     if char_attributes.hp == char_attributes.max_hp {
-      message(game_state, "You're already at full health.", colors::RED);
+      game_state.log.add("You're already at full health.", colors::RED);
       return ItemUseResult::Cancelled;
     }
-    message(game_state, "Your wounds begin to magically heal. Thanks, potion!", colors::LIGHT_VIOLET);
+    game_state.log.add("Your wounds begin to magically heal. Thanks, potion!", colors::LIGHT_VIOLET);
     objects[PLAYER_IDX].heal(HEAL_AMOUNT);
     return ItemUseResult::UsedUp;
   }
@@ -520,14 +530,14 @@ fn on_object_death(obj: &mut Object, game_state: &mut GameState) {
   match obj.brain {
     Some(brain) => {
       // AI
-      message(game_state, format!("{} died!", obj.name), colors::RED);
+      game_state.log.add(format!("{} died!", obj.name), colors::RED);
       obj.name = format!("{} [corpse]", obj.name);
       obj.blocks = false;
       obj.brain = None;
     },
     // player
     None => {
-      message(game_state, format!("{} died!", obj.name), colors::RED);
+      game_state.log.add(format!("{} died!", obj.name), colors::RED);
       obj.blocks = false;
     }
   }
@@ -563,7 +573,7 @@ fn player_move_or_attack(game_state: &mut GameState, dx: i32, dy: i32, objects: 
       player.attack(target, game_state);
     }
     else {
-      message(game_state, format!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name), colors::BLUE);
+      game_state.log.add(format!("{} chops at the corpse of {}. Blood sprays out.", player.name, target.name), colors::BLUE);
     }
   }
 }
@@ -833,7 +843,7 @@ fn render_all(game_state: &mut GameState, engine: &mut EngineState, objects: &[O
 
   // Game messages
   let mut y = MSG_HEIGHT as i32;
-  for &(ref msg, color) in game_state.messages.iter().rev() {
+  for &(ref msg, color) in game_state.log.iter().rev() {
     let msg_height = engine.panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
     y -= msg_height;
     if y < 0 {
@@ -921,7 +931,7 @@ fn main() {
   let mut game_state = GameState {
     debug_mode: debug_mode,
     debug_disable_fog: debug_disable_fog,
-    messages: vec![],
+    log: vec![],
     game_running: true,
     inventory: vec![],
     map: map
