@@ -104,7 +104,11 @@ struct ThreadContext {
 
 fn _new_thread_context_from_seed(seed_val: i32, rng_seed: &[usize], custom_seed: bool) -> ThreadContext {
     let rng: StdRng = SeedableRng::from_seed(rng_seed);
-    println!("[RNG init] Provided seed: {:?}, RNG Seed: {:?}", seed_val, rng_seed[0]);
+    // TODO @bug OSX: if you take a printed seed and pass it in as an arg, you don't get
+    // the exact same RNG as the one that printed the seed value. I also had to add the
+    // `as i32` in the println in order to see an integer value in OSX. This wasn't needed
+    // in Windows.
+    println!("[RNG init] Provided seed: {:?}, RNG Seed: {:?}", seed_val, rng_seed[0] as i32);
     ThreadContext {
       rand: rng,
       custom_seed: custom_seed,
