@@ -10,4 +10,5 @@ set path=w:\rusty-roguelike\misc;%path%
 set _NO_DEBUG_HEAP=1
 
 REM Start the editor
-call "C:\Program Files\Git\git-bash.exe"
+call C:\msys64\msys2_shell.cmd -mingw64 -use-full-path
+exit
